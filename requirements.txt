@@ -1,0 +1,7 @@
+numpy<2.0 
+mujoco
+roboticstoolbox-python
+spatialmath-python
+pandas
+pdf2image
+open3d
