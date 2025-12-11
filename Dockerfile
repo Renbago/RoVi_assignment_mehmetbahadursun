@@ -38,9 +38,10 @@ WORKDIR /home/${USER}
 # Install dependencies + tools for mujoco + ompl
 RUN pip install --upgrade pip setuptools wheel && \
     pip install --no-cache-dir \
-    "numpy<2.0" mujoco roboticstoolbox-python spatialmath-python \
+    mujoco roboticstoolbox-python spatialmath-python \
     matplotlib pillow opencv-python opencv-python-headless \
-    open3d pandas pdf2image scipy pyyaml glfw ompl mjc_viewer
+    open3d pandas pdf2image scipy pyyaml glfw ompl mjc_viewer && \
+    pip install --no-cache-dir "numpy<2.0" --force-reinstall 
 
 ENV PATH="/home/${USER}/.local/bin:$PATH"
 

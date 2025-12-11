@@ -1,7 +1,20 @@
-import spatialmath as sm
+"""
+Author: Mehmet Baha Dursun
+Email: medur25@student.sdu.dk
+"""
 import mujoco as mj
-import roboticstoolbox as rtb
+import spatialmath as sm
 import numpy as np
+import roboticstoolbox as rtb
+from spatialmath import SE3
+
+import sys
+import os
+
+# the helpers path directory
+sys.path.append(os.path.join(os.path.dirname(__file__), 'scripts'))
+from helpers.trapezoidal_profile import TrapezoidalProfile
+
 from spatialmath.base import trinterp, trnorm
 
 
@@ -103,7 +116,14 @@ def is_q_valid(d, m, q):
             geom2_name = m.geom(contact.geom2).name            
             # Filter out collision that isn't about the robot
             if geom1_name in UR_JOINT_NAMES or geom2_name in UR_JOINT_NAMES:
-                # print(f"  Contact {i}: {geom1_name} <-> {geom2_name}", "Robot in collision!")
+                # the problem is the robot does see the boxes 
+                # which we grasped as a collision, so we need to cancel it
+                # sorry not the robot RRT so its cannot create a path 
+                # that is why we need to cancel the collision
+                graspables = ["box", "cylinder", "t_block_pt1", "t_block_pt2"]
+                if (geom1_name in graspables or geom2_name in graspables):
+                    continue
+
                 # Return pose back to original pose
                 ur_set_qpos(d, q0)
                 mj.mj_forward(m, d)
@@ -112,9 +132,6 @@ def is_q_valid(d, m, q):
     ur_set_qpos(d, q0)
     mj.mj_forward(m, d)
     return True
-
-
-
 
 class UR5robot():
     def __init__(self, data: mj.MjData, model:mj.MjModel,):
@@ -133,6 +150,9 @@ class UR5robot():
         self.m = model
         self.queue = []
         self.gripper_value = 0
+
+        # Visualization params
+        self.planned_trajectories = []
 
     def get_current_tcp(self):
         q0 = self.get_current_q()
@@ -161,7 +181,11 @@ class UR5robot():
         return current_q
     
     def set_gripper(self, value, t=100):
-        last_q = self.queue[-1][0]
+        # Get last position from queue, or current position if queue is empty
+        if len(self.queue) > 0:
+            last_q = self.queue[-1][0]
+        else:
+            last_q = self.get_current_q()
         for _ in range(t):
             self.queue.append((last_q, value))
         self.gripper_value = value
@@ -176,12 +200,130 @@ class UR5robot():
                 qinit = q_step[0]
 
     def move_j(self, start_q, end_q, t=100):
-        for step in rtb.jtraj(q0=start_q, qf=end_q, t=t).s: # .s to get position information
-            self.queue.append((step, self.gripper_value))
+        """
+        Move joints using Trapezoidal Velocity Profile.
+        t: number of steps (duration = t * 0.002)
+        """
+        dt = 0.002
+        t_f = t * dt
+        
+        # Use Unified Trapezoidal Profile (handles arrays natively)
+        profile = TrapezoidalProfile(q_i=start_q, q_f=end_q, t_f=t_f)
+        _, positions, _, _ = profile.sample_trajectory(dt=dt)
+        
+        for p in positions:
+            self.queue.append((p, self.gripper_value))
 
     def move_j_via(self, points, t=100):
         # a list of q poses -> a joint space interpolaton
         for i in range(1, len(points)):
             self.move_j(points[i-1], points[i], t=t)
 
+    """
+    Visualization functions:
+    """
+
+    def add_planned_path(self, trajectory):
+        """Store planned path"""
+        self.planned_trajectories.extend(trajectory)
     
+    def get_ee_positions(self, trajectory=None, use_queue=False, sample_rate=10):
+        """
+        Compute end-effector positions.
+        trajectory: optional list of q (joint) arrays. If provided, calculate EE for this list.
+        use_queue=True: use all interpolated queue positions (denser) from ROBOT memory
+        sample_rate: only use every Nth point (for performance)
+        """
+        ee_positions = []
+        
+        # 1. Use EXTERNAL Trajectory if provided
+        if trajectory is not None:
+             for i, q in enumerate(trajectory):
+                if i % sample_rate == 0:
+                     T = self.robot_ur5.fkine(q)
+                     ee_positions.append(T.t.copy())
+                     
+        # 2. Use INTERNAL Queue (Dense)
+        elif use_queue and len(self.queue) > 0:
+            # Use dense queue (all interpolated steps)
+            for i, (q, _) in enumerate(self.queue):
+                if i % sample_rate == 0:  # Sample every Nth point
+                    T = self.robot_ur5.fkine(q)
+                    ee_positions.append(T.t.copy())
+                    
+        # 3. Use INTERNAL Planned Trajectories (Sparse)
+        else:
+            # Use sparse planned trajectories (RRT waypoints)
+            for q in self.planned_trajectories:
+                T = self.robot_ur5.fkine(q)
+                ee_positions.append(T.t.copy())
+        
+        return ee_positions
+    
+    def visualize_trajectory(self, viewer, use_queue=True, sample_rate=10):
+        """
+        Visualize trajectory in viewer with spheres and connecting lines.
+        use_queue=True: show all interpolated steps (dense)
+        sample_rate: show every Nth point (for performance)
+        """
+        ee_positions = self.get_ee_positions(use_queue=use_queue, sample_rate=sample_rate)
+        
+        if len(ee_positions) == 0:
+            print("No trajectory to visualize")
+            # Fallback: check if we have planned sparse waypoints even if queue is empty or not requested
+            if len(self.planned_trajectories) == 0:
+                return
+
+        scene = viewer.user_scn
+        
+        # 1. VISUALIZE DENSE TRACE (Small Spheres)
+        if use_queue and len(ee_positions) > 0:
+            num_points = len(ee_positions)
+            for idx, pos in enumerate(ee_positions):
+                t = idx / max(num_points - 1, 1)
+                color = [t, 0.2, 1.0 - t, 0.5]  # Blue -> Red, semi-transparent
+                
+                mj.mjv_initGeom(scene.geoms[scene.ngeom], type=mj.mjtGeom.mjGEOM_SPHERE,
+                               size=[0.005, 0, 0], pos=pos, mat=np.eye(3).flatten(),
+                               rgba=np.array(color, dtype=np.float32))
+                scene.ngeom += 1
+
+        # 2. VISUALIZE PLANNED WAYPOINTS (Large Spheres - "Main Stopping Points")
+        # These are the key nodes from RRT/PRM
+        if len(self.planned_trajectories) > 0:
+            for i, q_wp in enumerate(self.planned_trajectories):
+                # Calculate Forward Kinematics for this waypoint
+                T = self.robot_ur5.fkine(q_wp)
+                pos = T.t
+                
+                # Colors: Green for Start, Red for Goal, Yellow for Intermediate
+                if i == 0:
+                    color = [0, 1, 0, 1] # Start: Green
+                    size = 0.03
+                elif i == len(self.planned_trajectories) - 1:
+                    color = [1, 0, 0, 1] # Goal: Red
+                    size = 0.03
+                else:
+                    color = [1, 1, 0, 1] # Intermediate: Yellow
+                    size = 0.02
+                
+                mj.mjv_initGeom(scene.geoms[scene.ngeom], type=mj.mjtGeom.mjGEOM_SPHERE,
+                               size=[size, 0, 0], pos=pos, mat=np.eye(3).flatten(),
+                               rgba=np.array(color, dtype=np.float32))
+                scene.ngeom += 1
+        
+        print(f"Visualization updated: {len(ee_positions)} trace points, {len(self.planned_trajectories)} waypoints")
+
+    def save_trajectory(self, filename="trajectory.npy"):
+        """Save queue trajectory to file for later replay"""
+        import json
+        data = {
+            "queue": [(q.tolist(), g) for q, g in self.queue],
+            "planned": [q.tolist() for q in self.planned_trajectories]
+        }
+        np.save(filename, data, allow_pickle=True)
+        print(f"Trajectory saved to {filename}")
+    
+    def clear_trajectories(self):
+        """Clear stored trajectories"""
+        self.planned_trajectories = []
