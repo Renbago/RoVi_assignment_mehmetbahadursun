@@ -1,0 +1,278 @@
+%-----------------------------------------------------------------------------------------------------------
+% Trajectory Planning Assignment Report
+% Student: Mehmet Bahadur Sun
+%-----------------------------------------------------------------------------------------------------------
+\documentclass[12pt]{report} 
+\usepackage[a4paper, top=25mm, bottom=25mm, left=25mm, right=25mm]{geometry}
+\headheight=15pt
+\usepackage[utf8]{inputenc}
+
+% Bibliography
+\usepackage[backend=biber,style=nature]{biblatex}
+\addbibresource{references.bib}
+
+% Packages
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\usepackage{float}
+\usepackage{subcaption}
+\usepackage{color}
+\usepackage{setspace}
+\setstretch{1.15}
+\usepackage{import}
+\usepackage{titlesec}
+\usepackage[export]{adjustbox}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\graphicspath{{./figures/}}
+\usepackage{caption}
+\usepackage[labelfont=bf]{caption}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+% Code listing style
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red},
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray}
+}
+
+% Header/Footer
+\fancyhead[R]{mehmetbahadursun@sdu.dk}
+\fancyhead[L]{Assignment 1: Trajectory Planning}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{1pt}
+\renewcommand{\footrulewidth}{0.5pt}
+
+%-----------------------------------------------------------------------------------------------------------
+\begin{document}
+
+% Title Page
+\begin{titlepage}
+\begin{center}
+    \vspace*{1cm}
+    \LARGE\textbf{Assignment 1: Trajectory Generation for Pick and Place Tasks}
+    
+    \vspace{1cm}
+    \includegraphics[width=0.6\textwidth]{Image/SDU_BLACK_RGB_png.png}
+    
+    \vspace{2cm}
+    \large
+    \textbf{Mehmet Bahadur Sun}\\
+    \vspace{0.3cm}
+    Student Number: XXXXXX\\
+    mehmetbahadursun@sdu.dk
+    
+    \vfill
+    \begin{flushleft}
+    Robotics and Computer Vision 2024\\
+    University of Southern Denmark (SDU)\\
+    Odense\\
+    Date of submission: XX.12.2024
+    \end{flushleft}
+\end{center}
+\end{titlepage}
+
+%-----------------------------------------------------------------------------------------------------------
+% INTRODUCTION
+%-----------------------------------------------------------------------------------------------------------
+\section{Introduction}
+
+Bu ödevde, bir UR5e robot kolu için iki farklı yörünge planlama yöntemi uygulanmıştır:
+(1) \textbf{Trapez Hız Profili} ile nokta-nokta (P2P) interpolasyon ve 
+(2) \textbf{RRT (Rapidly-exploring Random Tree)} algoritması ile engelden kaçınmalı yol planlama.
+
+Amaç, verilen workcell ortamında üç farklı nesneyi (kutu, silindir, T-blok) alıp belirlenen bölgeye bırakmaktır. Her iki yöntem de tüm nesneler için test edilmiş ve performansları karşılaştırılmıştır.
+
+% English version:
+% This assignment implements two trajectory planning methods for a UR5e robot arm:
+% (1) Point-to-Point interpolation with Trapezoidal Velocity Profile, and
+% (2) RRT (Rapidly-exploring Random Tree) algorithm for collision-free path planning.
+
+%-----------------------------------------------------------------------------------------------------------
+% METHODS
+%-----------------------------------------------------------------------------------------------------------
+\section{Methods}
+
+\subsection{Trapezoidal Velocity Profile}
+
+\subsubsection{Motivation: Why Not Linear Interpolation?}
+
+With linear interpolation, velocity is constant:
+\begin{equation}
+\dot{q} = \frac{q_f - q_i}{t_f - t_i} = \text{constant}
+\end{equation}
+
+However, at $t=0$, velocity jumps instantly from 0 to this value. Since this happens in zero time:
+\begin{equation}
+\ddot{q} = \frac{\Delta v}{\Delta t} = \frac{V}{0} = \infty \quad \text{(Infinite acceleration!)}
+\end{equation}
+
+This causes mechanical stress and motor damage. The trapezoidal profile solves this by limiting acceleration to a finite value.
+
+\subsubsection{Alternative Methods}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Method} & \textbf{Pros} & \textbf{Cons} \\
+\hline
+Linear & Simplest & Infinite acceleration \\
+Trapezoidal & Simple, efficient & Discontinuous acceleration \\
+Parabolic Blend & Same as trapezoidal & Position-based view \\
+Cubic Polynomial & Smooth velocity & No via-point support \\
+Quintic Polynomial & Smooth vel \& acc & High computation \\
+S-Curve & Jerk-limited & Complex implementation \\
+\hline
+\end{tabular}
+\caption{Comparison of trajectory generation methods}
+\end{table}
+
+\textit{Note: Parabolic Blend $\approx$ Trapezoidal Profile (different viewpoints of same concept)}
+
+\subsubsection{Three Phases of Trapezoidal Profile}
+
+\begin{enumerate}
+    \item \textbf{Acceleration phase} ($0 \leq t \leq t_c$): Velocity increases linearly
+    \item \textbf{Constant velocity phase} ($t_c < t \leq t_f - t_c$): Velocity stays constant
+    \item \textbf{Deceleration phase} ($t_f - t_c < t \leq t_f$): Velocity decreases linearly
+\end{enumerate}
+
+\subsubsection{Matematiksel Formülasyon}
+
+Pozisyon denklemi (Sciavicco, Eq. 4.8):
+\begin{equation}
+q(t) = \begin{cases}
+q_i + \frac{1}{2}\ddot{q}_c t^2 & 0 \leq t \leq t_c \\
+q_i + \ddot{q}_c t_c \left(t - \frac{t_c}{2}\right) & t_c < t \leq t_f - t_c \\
+q_f - \frac{1}{2}\ddot{q}_c (t_f - t)^2 & t_f - t_c < t \leq t_f
+\end{cases}
+\end{equation}
+
+Hız denklemi:
+\begin{equation}
+\dot{q}(t) = \begin{cases}
+\ddot{q}_c t & 0 \leq t \leq t_c \\
+\ddot{q}_c t_c = \dot{q}_c & t_c < t \leq t_f - t_c \\
+\ddot{q}_c (t_f - t) & t_f - t_c < t \leq t_f
+\end{cases}
+\end{equation}
+
+İvme denklemi:
+\begin{equation}
+\ddot{q}(t) = \begin{cases}
++\ddot{q}_c & 0 \leq t \leq t_c \\
+0 & t_c < t \leq t_f - t_c \\
+-\ddot{q}_c & t_f - t_c < t \leq t_f
+\end{cases}
+\end{equation}
+
+Hızlanma süresi hesabı (Eq. 4.6):
+\begin{equation}
+t_c = \frac{t_f}{2} - \frac{1}{2}\sqrt{\frac{t_f^2 \ddot{q}_c - 4(q_f - q_i)}{\ddot{q}_c}}
+\end{equation}
+
+\subsection{RRT Algorithm}
+
+RRT, konfigürasyon uzayında rastgele bir ağaç büyüterek yol bulan olasılıksal bir algoritmadır.
+
+\begin{algorithm}[H]
+\caption{RRT Algorithm}
+\begin{algorithmic}[1]
+\State $T \gets \{q_{start}\}$
+\While{$q_{goal} \notin T$}
+    \State $q_{rand} \gets \text{RANDOM\_SAMPLE}()$
+    \State $q_{near} \gets \text{NEAREST}(T, q_{rand})$
+    \State $q_{new} \gets \text{EXTEND}(q_{near}, q_{rand})$
+    \If{$\text{IS\_VALID}(q_{new})$}
+        \State $T \gets T \cup \{q_{new}\}$
+    \EndIf
+\EndWhile
+\State \Return path from $q_{start}$ to $q_{goal}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Comparison of Methods}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Özellik} & \textbf{P2P Trapez} & \textbf{RRT} \\
+\hline
+Tip & Deterministik & Olasılıksal \\
+Engel Kaçınma & Hayır & Evet \\
+Hesaplama Hızı & Çok Hızlı & Değişken \\
+Yol Kalitesi & Pürüzsüz & Post-process gerekir \\
+\hline
+\end{tabular}
+\caption{İki yöntemin karşılaştırması}
+\end{table}
+
+%-----------------------------------------------------------------------------------------------------------
+% RESULTS
+%-----------------------------------------------------------------------------------------------------------
+\section{Results and Discussion}
+
+\subsection{Trapezoidal Profile Results}
+
+% TODO: Add figure when generated
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.9\textwidth]{figures/trapezoidal_profile.png}
+%     \caption{Trapez hız profili: Pozisyon, hız ve ivme grafikleri}
+% \end{figure}
+
+\subsection{RRT Path Planning Results}
+
+% TODO: Add figure when generated
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.9\textwidth]{figures/rrt_path.png}
+%     \caption{RRT ile bulunan yol}
+% \end{figure}
+
+\subsection{Comparison Plots}
+
+% TODO: Add multi-joint trajectory comparison
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.9\textwidth]{figures/comparison.png}
+%     \caption{Her iki yöntemin eklem bazlı karşılaştırması}
+% \end{figure}
+
+%-----------------------------------------------------------------------------------------------------------
+% CONCLUSION
+%-----------------------------------------------------------------------------------------------------------
+\section{Conclusion}
+
+Bu çalışmada iki farklı yörünge planlama yöntemi uygulanmış ve karşılaştırılmıştır:
+
+\begin{itemize}
+    \item \textbf{Trapez hız profili}, önceden tanımlanmış waypoint'ler arasında pürüzsüz ve öngörülebilir hareket sağlar.
+    \item \textbf{RRT}, engelli ortamlarda çarpışmasız yollar bulabilir ancak bulunan yollar genellikle düzensizdir.
+\end{itemize}
+
+Gelecek iyileştirmeler:
+\begin{itemize}
+    \item RRT yollarına post-processing (smoothing) eklenmesi
+    \item Gerçek zamanlı replanning desteği
+    \item Dinamik engel takibi
+\end{itemize}
+
+%-----------------------------------------------------------------------------------------------------------
+\newpage
+\printbibliography[title={References}]
+
+\end{document}

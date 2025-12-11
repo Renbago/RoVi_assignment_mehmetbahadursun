@@ -10,13 +10,14 @@ from ompl import geometric as og
 
 from robot import *
 
-
 class StateValidator:
     # This is mujoco specific, so I have implemented this for you
     def __init__(self, d, m, num_joint):
         self.d = d
         self.m = m
         self.num_joint = num_joint
+
+        self.all_trajectories = []
     
     def __call__(self, state):
         # print("isStateValid - state: ", state)
@@ -86,16 +87,14 @@ def plan(d, m, start_q, goal_q):
 def program(d, m):
     # Define our robot object
     robot = UR5robot(data=d, model=m)
-    
-    all_trajectories = []  # Store all planned paths for visualization
-    
+        
     start_q = robot.get_current_q()
     # Define grasping frames for object: box
     obj_frame = get_mjobj_frame(model=m, data=d, obj_name="drop_point_box") # Get body frame
     obj_frame = obj_frame * sm.SE3.Rx(-np.pi)
     goal_q = robot.robot_ur5.ik_LM(Tep=obj_frame, q0=start_q)[0]
     sol_traj = plan(d=d, m=m, start_q=start_q, goal_q=goal_q)
-    all_trajectories.extend(sol_traj)
+    robot.add_planned_path(sol_traj)  # Store for visualization
 
     robot.move_j_via(points=sol_traj, t=500)   
 
@@ -105,11 +104,11 @@ def program(d, m):
     obj_frame = obj_frame * sm.SE3.Rx(-np.pi)
     goal_q = robot.robot_ur5.ik_LM(Tep=obj_frame, q0=start_q)[0]
     sol_traj = plan(d=d, m=m, start_q=start_q, goal_q=goal_q)
-    all_trajectories.extend(sol_traj)
+    robot.add_planned_path(sol_traj)  # Store for visualization
 
     robot.move_j_via(points=sol_traj, t=500)   
 
-    return robot.queue, robot, all_trajectories
+    return robot.queue, robot
 
     
     
