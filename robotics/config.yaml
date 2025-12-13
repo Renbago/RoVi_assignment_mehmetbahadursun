@@ -1,0 +1,31 @@
+# Configuration file for RoVi Project 2025
+# Author: Mehmet Baha Dursun
+
+# Scene settings 
+# u need to put .xml under of robotics directory or else its will be not work
+scene:
+  model_path: "scene_obstacles_lecture_6.xml"
+  objects_to_move:
+    - box
+    - cylinder
+    - t_block
+
+# Default planner
+planner:
+  default_type: "rrt"
+
+# P2P Waypoints (u need to record these manually and write here per object using p2p_point_saver.py)
+p2p_waypoints:
+  box:
+    - [-0.493874, -1.09239, 0.331178, -2.20509, -1.5708, -1.30718]
+    - [1.62553, -1.20848, -0.829855, -2.20529, -1.57058, -1.30718]
+    - [2.28307, -1.20849, -0.829925, -2.20531, -1.57054, -1.30718]
+    - [2.50006, -1.45028, 1.676, -2.20613, -1.57057, -1.30719]
+    - [2.5257, -1.10066, 1.68561, -2.20771, -1.57094, -1.30708]
+    - [2.48015, -1.00006, 1.67556, -2.20055, -1.56984, -1.30848]
+  cylinder: []
+  t_block: []
+
+# Output paths
+output:
+  directory: "outputs"
