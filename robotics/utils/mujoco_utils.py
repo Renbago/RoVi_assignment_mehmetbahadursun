@@ -313,7 +313,7 @@ def is_q_valid_with_held_object(d, m, q, robot_rtb, held_object, target_object=N
             # If robot or held object is in collision with something else
             if robot_involved or held_involved:
                 # Debug: uncomment to see collisions
-                # print(f"  [COLLISION] {geom1_name} <-> {geom2_name}")
+                print(f"  [COLLISION] {geom1_name} <-> {geom2_name}")
                 collision = True
                 break
 

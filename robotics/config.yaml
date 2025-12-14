@@ -6,9 +6,9 @@
 scene:
   model_path: "scene_obstacles_lecture_6.xml"
   objects_to_move:
-    - box
+    # - box
     - cylinder
-    - t_block
+    # - t_block
 
 # Planner settings
 planner:
@@ -18,7 +18,7 @@ planner:
 # IK Sampling settings for GoalSampleableRegion
 # See ik_goal_region.py for detailed explanation
 ik_sampling:
-  n_samples: 16
+  n_samples: 64
 
 # P2P Waypoints (u need to record these manually and write here per object using p2p_point_saver.py)
 p2p_waypoints:

@@ -91,8 +91,12 @@ class IKGoalRegion(ob.GoalSampleableRegion):
         if self.held_object:
             print(f"  Held object: {self.held_object}")
 
-        for i in range(n_samples):
+        ik_attempts = 0
+        ik_converged = 0
+        ik_collided = 0
 
+        for i in range(n_samples):
+            ik_attempts += 1
             theta = -np.pi + (2 * np.pi * i / n_samples)
             q_init = np.zeros(6)
             q_init[0] = theta
@@ -100,6 +104,7 @@ class IKGoalRegion(ob.GoalSampleableRegion):
             result = self.robot.ik_LM(Tep=self.target_frame, q0=q_init)
 
             if result[1]:
+                ik_converged += 1
                 q_solution = result[0]
 
                 # Use appropriate collision checker based on whether object is held
@@ -119,12 +124,19 @@ class IKGoalRegion(ob.GoalSampleableRegion):
                         if np.linalg.norm(q_solution - existing) < 0.1:
                             is_unique = False
                             break
-
+                    
                     if is_unique:
                         self.valid_solutions.append(q_solution)
                         print(f"  [+] Valid solution: J1={np.degrees(q_solution[0]):.1f}deg")
+                else:
+                    ik_collided += 1
+                    # print(f"  [-] Solution collided: J1={np.degrees(q_solution[0]):.1f}deg")
 
-        print(f"[IKGoalRegion] Found {len(self.valid_solutions)} valid solutions")
+        print(f"[IKGoalRegion] Found {len(self.valid_solutions)} valid solutions (Attempts: {ik_attempts}, Converged: {ik_converged}, Collided: {ik_collided})")
+        if ik_converged == 0:
+            print("[IKGoalRegion] CRITICAL: IK Failed to converge physically. Target might be out of reach.")
+        elif len(self.valid_solutions) == 0:
+            print("[IKGoalRegion] CRITICAL: All IK solutions collided.")
 
     def distanceGoal(self, state):
         """
