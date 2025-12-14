@@ -10,9 +10,15 @@ scene:
     - cylinder
     - t_block
 
-# Default planner
+# Planner settings
 planner:
-  default_type: "rrt"
+  default_type: "rrt"  # "rrt" or "prm" or "p2p"
+  ik_mode: "simple"    # "simple" (Exercise 9) or "goal_region" (GoalSampleableRegion)
+
+# IK Sampling settings for GoalSampleableRegion
+# See ik_goal_region.py for detailed explanation
+ik_sampling:
+  n_samples: 16
 
 # P2P Waypoints (u need to record these manually and write here per object using p2p_point_saver.py)
 p2p_waypoints:

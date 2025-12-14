@@ -55,8 +55,8 @@
 <body name="pickup_point_cylinder" pos="0.6 0 0.3" quat="1 0 0 0">
 <geom name="pickup_point_cylinder" type="sphere" size="0.005" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
 </body>
-<body name="pickup_point_tblock" pos="0.6 -0.3 0.3" quat="1 0 0 0">
-<geom name="pickup_point_tblock" type="sphere" size="0.005" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
+<body name="pickup_point_t_block" pos="0.6 -0.3 0.3" quat="1 0 0 0">
+<geom name="pickup_point_t_block" type="sphere" size="0.005" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
 </body>
 <body name="drop_point_box" pos="-0.6 0.3 0.03" quat="1 0 0 0">
     <geom name="drop_point_box" type="sphere" size="0.005" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
@@ -64,8 +64,8 @@
 <body name="drop_point_cylinder" pos="-0.6 0 0.03" quat="1 0 0 0">
     <geom name="drop_point_cylinder" type="sphere" size="0.005" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
 </body>
-<body name="drop_point_tblock" pos="-0.6 -0.3 0.03" quat="1 0 0 0">
-    <geom name="drop_point_tblock" type="sphere" size="0.005" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
+<body name="drop_point_t_block" pos="-0.6 -0.3 0.03" quat="1 0 0 0">
+    <geom name="drop_point_t_block" type="sphere" size="0.005" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
 </body>
 <!-- Obstacles -->
 <body name="wall_1" pos="0 -0.6 0.25" quat="1 0 0 0">

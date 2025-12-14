@@ -20,13 +20,17 @@ from PIL import Image
 
 from robot import *
 from cam import *
-from scripts.helpers import (
-    plan, 
-    StateValidator, 
-    plot_multi_joint_trajectory, 
-    pick_object, 
-    place_object
+from scripts import (
+    plan,
+    StateValidator,
+    plot_multi_joint_trajectory,
+    plot_all_joints_derivatives,
+    plot_combined_trajectory,
+    pick_object,
+    place_object,
+    return_to_home
 )
+from utils import load_config, get_objects_to_move, get_model_path, get_default_planner
 
 
 # params for sequence tracking
@@ -93,41 +97,58 @@ def run_sequence(robot, start_q, goal_q, d, m, viewer, planner_type="rrt"):
         return False
 
 
-def save_results(time_step):
+def save_object_results(obj_name, trajectory, planner_type, time_step):
     """
-    save all necessary data to outputs/
+    Save results for a single object.
+    Creates: outputs/{planner}_{obj}.png (Position, Velocity, Accel, Jerk in one plot)
     """
-    global all_trajectories, movement_boundaries, sequence_names
-    
-    if all_trajectories:
-        print("\n--- Saving outputs ---")
-        np.save("outputs/trajectory.npy", {
-            "trajectories": all_trajectories,
-            "boundaries": movement_boundaries,
-            "sequences": sequence_names
-        }, allow_pickle=True)
-        print(f"trajectory is saved: {len(all_trajectories)} points: {sequence_names}")
-        print(f"boundaries: {movement_boundaries}")
-        
-        plot_multi_joint_trajectory(
-            trajectory=all_trajectories,
-            t_f=len(all_trajectories) * time_step,
-            save_path="outputs/trajectory_plot.png",
-            show=False
-        )
-        print("\ntrajectory plot is saved to outputs/trajectory_plot.png\n")
+    if not trajectory:
+        return
+
+    prefix = f"{planner_type}_{obj_name}"
+    print(f"\n--- Saving {obj_name} outputs ---")
+
+    # Save trajectory data
+    np.save(f"outputs/{prefix}_trajectory.npy", np.array(trajectory))
+    print(f"  Saved: outputs/{prefix}_trajectory.npy ({len(trajectory)} points)")
+
+    # Save single plot with Position, Velocity, Acceleration, Jerk
+    plot_all_joints_derivatives(
+        trajectory=trajectory,
+        dt=time_step,
+        title_prefix=f"{planner_type.upper()} - {obj_name}",
+        save_path=f"outputs/{prefix}.png",
+        show=False
+    )
+
+
+def save_combined_results(trajectories_dict, planner_type, time_step):
+    """
+    Save combined plot for all objects side by side.
+    Creates: outputs/{planner}_combined.png
+    """
+    if not trajectories_dict:
+        return
+
+    print("\n--- Saving combined outputs ---")
+
+    # Save combined plot (all objects side by side)
+    plot_combined_trajectory(
+        trajectories_dict=trajectories_dict,
+        dt=time_step,
+        planner_type=planner_type,
+        save_path=f"outputs/{planner_type}_combined.png",
+        show=False
+    )
 
 
 if __name__ == "__main__":
-    # Initialize OpenGL context first
-    # mj.GLContext(max_width=1280, max_height=720)  # Adjust size as needed
+    # Load configuration
+    config = load_config()
+    model_path = get_model_path(config)
+    objects_to_move = get_objects_to_move(config)
+    default_planner = get_default_planner(config)
 
-    # import os
-    # os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "lesson_3"))
-
-    model_path = "scene_obstacles_lecture_6.xml"  # Replace with your XML file
-    time_step = 0.002 # Defined in scene.xml 
-    
     m = mujoco.MjModel.from_xml_path(model_path)
     d = mujoco.MjData(m)
 
@@ -139,9 +160,8 @@ if __name__ == "__main__":
                                       ) as viewer:
         
         # Home position for the scene
-        target_pos = np.array([0, -np.pi/2, np.pi/2, -np.pi/2, -np.pi/2, 0])  # UR home position
-        ur_set_qpos(data=d, q_desired=target_pos)
-        hande_ctrl_qpos(data=d, gripper_value=0) # Open gripper
+        ur_set_qpos(data=d, q_desired=UR5robot.Q_HOME)
+        hande_ctrl_qpos(data=d, gripper_value=0)  # Open gripper
 
 
         sim_start = time.time()
@@ -151,18 +171,45 @@ if __name__ == "__main__":
 
         # the main execution part
         robot = UR5robot(data=d, model=m)
-        planner_type = input("Select planner (rrt/prm/p2p): ").strip().lower() or "rrt"
+        planner_type = input(f"Select planner (rrt/prm/p2p) [{default_planner}]: ").strip().lower() or default_planner
 
-        # just call run_sequence() for each movement you want
-    
-        # Pick up box
-        pick_object(robot, "box", planner_type, d, m, viewer, execute_movement, all_trajectories, movement_boundaries)
-        
-        # Drop box
-        place_object(robot, "box", planner_type, d, m, viewer, execute_movement, all_trajectories, movement_boundaries)
+        # Store trajectories per object for combined plot
+        trajectories_per_object = {}
 
-        # save results
-        save_results(time_step)
+        # Pick and place ALL objects in sequence
+        for obj_name in objects_to_move:
+            print(f"\n{'='*50}")
+            print(f"Processing: {obj_name}")
+            print(f"{'='*50}")
+
+            # Track trajectory for this object separately
+            obj_trajectory = []
+            obj_boundaries = [0]
+
+            # Pick up object
+            pick_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
+
+            # Place object
+            place_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
+
+            # Return to home position for next object
+            return_to_home(robot, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
+
+            # Save results for this object
+            save_object_results(obj_name, obj_trajectory, planner_type, UR5robot.TIME_STEP)
+
+            # Store for combined plot
+            trajectories_per_object[obj_name] = obj_trajectory.copy()
+
+            # Also add to global tracking
+            all_trajectories.extend(obj_trajectory)
+            movement_boundaries.append(len(all_trajectories))
+
+            # Clear visualization for next object (only clears path spheres, not actual objects)
+            robot.clear_trajectories(viewer)
+
+        # Save combined plot (all objects side by side)
+        save_combined_results(trajectories_per_object, planner_type, UR5robot.TIME_STEP)
 
         # keep viewer open
         print("\nSimulation complete. Close viewer window to exit.")
