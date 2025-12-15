@@ -42,16 +42,25 @@ sequence_names = []
 
 def execute_movement(robot, cmd_queue, d, m, viewer):
     """
-    execute a single movement sequence and return when completed
+    Execute a single movement sequence and return when completed.
+
+    Args:
+        robot: UR5robot instance
+        cmd_queue: Queue of (joint_config, gripper_value) commands
+        d: MuJoCo data
+        m: MuJoCo model
+        viewer: MuJoCo viewer
+
+    Returns:
+        Remaining command queue (empty if all executed)
     """
     while len(cmd_queue) > 0 and viewer.is_running():
         cmd_element, cmd_queue = cmd_queue[0], cmd_queue[1:]
         desired_cmd, gripper_value = cmd_element
 
         if isinstance(desired_cmd, np.ndarray):
-            # This allows the physics engine to calculate contacts/grasping correctly.
-            # ur_set_qpos: kinematically sets position (teleportation) will NOT grab (physics ignored)
-            # ur_ctrl_qpos: applies forces to reach position (control) WILL grab (physics enabled)
+            # ur_ctrl_qpos: applies forces to reach position (control) - WILL grab (physics enabled)
+            # ur_set_qpos: kinematically sets position (teleportation) - will NOT grab (physics ignored)
             ur_ctrl_qpos(data=d, q_desired=desired_cmd)
 
         if gripper_value is not None:
@@ -187,10 +196,23 @@ if __name__ == "__main__":
             obj_boundaries = [0]
 
             # Pick up object
-            pick_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
+            pick_success = pick_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
 
-            # Place object
-            place_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
+            # Place object (with retry on failure)
+            place_success = False
+            if pick_success:
+                place_success = place_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
+
+                # Retry once if place failed
+                if not place_success:
+                    print(f"[RETRY] Place failed for {obj_name} - retrying...")
+                    place_success = place_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
+
+                    if not place_success:
+                        print(f"[ERROR] Place retry failed for {obj_name} - stopping execution")
+                        raise RuntimeError(f"Could not place {obj_name} after retry")
+            else:
+                print(f"Skipping place for {obj_name} - pick failed")
 
             # Return to home position for next object
             return_to_home(robot, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)

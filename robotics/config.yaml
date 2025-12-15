@@ -1,24 +1,51 @@
 # Configuration file for RoVi Project 2025
 # Author: Mehmet Baha Dursun
 
-# Scene settings 
+# Debug settings for logging
+# Reference: utils/logger.py ProjectLogger class
+debug:
+  enabled: true       # Show DEBUG level logs (detailed info)
+  log_to_file: true   # Write logs to outputs/planning_logs/
+
+  # Log level options:
+  # - "ALL": Show all log levels (DEBUG, INFO, WARNING, ERROR)
+  # - Single level: "INFO" (shows INFO and above)
+  # - Multiple levels: ["INFO", "WARNING", "ERROR"] (shows only these specific levels)
+  log_level: "ALL"
+
+# Scene settings
 # u need to put .xml under of robotics directory or else its will be not work
 scene:
   model_path: "scene_obstacles_lecture_6.xml"
   objects_to_move:
-    # - box
+    - box
     - cylinder
-    # - t_block
+    - t_block
 
 # Planner settings
 planner:
   default_type: "rrt"  # "rrt" or "prm" or "p2p"
-  ik_mode: "simple"    # "simple" (Exercise 9) or "goal_region" (GoalSampleableRegion)
 
-# IK Sampling settings for GoalSampleableRegion
-# See ik_goal_region.py for detailed explanation
-ik_sampling:
-  n_samples: 64
+# IK settings
+# Reference: scripts/ik_calculator.py IKCalculator class
+ik:
+  mode: "simple"  # "simple" (direct IK) or "goal_region" (OMPL GoalSampleableRegion)
+
+  # IK Sampling settings
+  sampling:
+    n_samples: 64  # normally 8-16 is enough, increased for testing
+
+    # Approach direction sweep - rotates target frame around Z axis
+    # Specifically made for cylinder object!
+    # Other boxes might not hold properly if rotated
+    sweep:
+      enabled: false
+      degrees: 30    # -30 to +30 total 60
+
+  # GoalSampleableRegion settings (only used when mode: "goal_region")
+  goal_region:
+    distance_tolerance: 0.02  # meters
+    angle_tolerance: 0.1      # radians
 
 # P2P Waypoints (u need to record these manually and write here per object using p2p_point_saver.py)
 p2p_waypoints:

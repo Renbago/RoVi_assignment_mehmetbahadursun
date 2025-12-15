@@ -29,14 +29,10 @@ def _get_output_path(filename: str) -> str:
     return filename
 
 
-#TODO: Directly handle it in only in one def there is no need to different
-# U can take a referance the trapezoidal_profile.py
-
 def plot_trapezoidal_profile(profile, save_path: Optional[str] = None, show: bool = True):
     """
     Plot position, velocity, acceleration for a TrapezoidalProfile.
-    Assumes single joint profile for now but:
-    #TODO: Generalize to multi-joint profiles later Baha
+    Assumes single joint profile for now.
     """
     times, positions, velocities, accelerations = profile.sample_trajectory()
     

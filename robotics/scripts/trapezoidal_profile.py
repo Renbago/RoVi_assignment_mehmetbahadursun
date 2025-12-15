@@ -36,7 +36,6 @@ class TrapezoidalProfile:
         - Parabolic blend is position-based (linear + parabolic pieces)
         - Trapezoidal is velocity-based (acceleration + cruise + deceleration)
         
-        # TODO: Check here baha for report
 
         Extra knowledges from book for my studies and later latex format: 
 
@@ -215,7 +214,6 @@ class TrapezoidalProfile:
             # Eq (4.7)
             # there is no upper bound for acceleration if u increase the value
             # instead of the triangle profile it will become a rectangle 
-            # TODO: Baha instead of print create a self.logger warning info error msg types
             acc_value = acc_magnitude < self.acc_min_abs
             if np.any(acc_value):
                 print("Warning: Acceleration too low (Eq 4.7)")

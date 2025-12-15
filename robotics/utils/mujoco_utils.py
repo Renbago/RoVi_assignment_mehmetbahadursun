@@ -9,6 +9,8 @@ import spatialmath as sm
 import yaml
 import numpy as np
 import os
+from utils.logger import ProjectLogger
+from spatialmath import SO3
 
 # ============================================================
 # Shared Robot Constants
@@ -48,14 +50,70 @@ OBJECT_GEOMS = {
     "t_block": ["t_block_pt1", "t_block_pt2"],
 }
 
-# Grasp offsets: Object center position relative to gripper frame (local coordinates)
-# When holding an object, its center is NOT at the gripper position
-# These offsets define where the object center is in the gripper's local frame
-GRASP_OFFSETS = {
-    "box": np.array([0, 0, -0.03]),       # Top-down grasp: center 3cm below gripper (Z-)
-    "cylinder": np.array([0, 0, -0.05]),  # Side grasp: center 5cm in gripper's pointing direction (local Z-)
-    "t_block": np.array([0, 0, -0.02]),   # Top-down grasp: center 2cm below gripper
+# Gripper geometry names (subset of UR_COLLISION_GEOMS)
+# These are the ONLY robot parts that should touch held objects
+GRIPPER_GEOMS = [
+    "right_driver_collision",
+    "right_coupler_collision",
+    "right_spring_link_collision",
+    "right_follower_collision",
+    "left_driver_collision",
+    "left_coupler_collision",
+    "left_spring_link_collision",
+    "left_follower_collision",
+    "right_pad",
+    "left_pad",
+    "eef_geom",  # End effector
+]
+
+# Gripper self-collision pairs to IGNORE (these are expected/normal contacts)
+# When gripper is closed, pads touch each other - this is NOT a real collision
+IGNORED_COLLISION_PAIRS = {
+    ("right_pad", "left_pad"),
+    ("left_pad", "right_pad"),
 }
+
+# Stores the REAL gripper-to-object transform measured after physics grasp.
+# Key: object name, Value: SE3 transform from gripper to object center
+RUNTIME_GRASP_OFFSET = {}
+
+"""
+    Grasp Configuration:
+
+    rx: rotation around X axis (π = top-down, π/2 = side grasp)
+    rz: rotation around Z axis (for side grasp orientation)
+    
+    tz: offset from object center where gripper aims (used for both grasp and collision checking)
+    td: How far gripper goes into object along approach direction (gripper local +Z)
+
+    side_grasp: True = horizontal approach, False = vertical approach
+    IMPORTANT: tz is now used for BOTH grasp positioning and collision checking.
+
+    example:
+    tz=0.03: Gripper aims 3cm above cylinder center
+    td=0.02: Gripper goes 2cm deeper into cylinder for better grip
+
+"""
+
+GRASP_CONFIG = {
+    "box": {"rx": np.pi, "tz": 0.03, "td": 0.03, "side_grasp": False},
+    "cylinder": {"rx": np.pi / 2, "rz": -np.pi / 2, "tz": 0.0, "td": 0.02, "side_grasp": True},
+    "t_block": {"rx": np.pi,"rz": -np.pi / 2, "tz": 0.02, "td": 0.03, "side_grasp": False},
+}
+
+DEFAULT_GRASP_CONFIG = {"rx": np.pi, "rz": 0, "tz": 0, "td": 0, "side_grasp": False}
+
+def get_grasp_offset(obj_name):
+    """
+    Use tz directly - it tells us where object center is relative to gripper TCP
+    tz = 0 means gripper at center, tz > 0 means gripper above center
+    """
+    config = GRASP_CONFIG.get(obj_name, DEFAULT_GRASP_CONFIG)
+
+    tz = config.get("tz", 0)
+
+    # Object center is tz distance in +Z direction from gripper TCP
+    return np.array([0, 0, tz])
 
 # ============================================================
 # Config Loading Functions
@@ -205,6 +263,10 @@ def is_q_valid(d, m, q, target_object=None):
             geom1_name = m.geom(contact.geom1).name
             geom2_name = m.geom(contact.geom2).name
 
+            # # Skip gripper self-collision (pads touching when closed)
+            # if (geom1_name, geom2_name) in IGNORED_COLLISION_PAIRS:
+            #     continue
+
             if geom1_name in UR_COLLISION_GEOMS or geom2_name in UR_COLLISION_GEOMS:
                 # Only ignore collisions with the SPECIFIC target object
                 if target_object is not None:
@@ -223,32 +285,108 @@ def is_q_valid(d, m, q, target_object=None):
     return True
 
 
+def compute_real_grasp_offset(d, m, robot_rtb, obj_name):
+    """
+    We are calling after grasp, the thing is we will be giving this
+    informatino to rtb for calculation the obstacle collision while 
+    IK is starting the path planning. so the obstacle will be calculated
+    as a new joint with area of the object. and will be not collide with
+    other objects check the get_grasp_transform function.
+
+    Reference: https://petercorke.github.io/robotics-toolbox-python/arm_erobot.html#tool
+    """
+    logger = ProjectLogger.get_instance()
+
+    # Grippers current position
+    q = ur_get_qpos(d, m)
+    gripper_frame = robot_rtb.fkine(q)
+
+    # Object's current real position 
+    obj_frame = get_mjobj_frame(m, d, obj_name)
+
+    # We are finding the new TF with new obj_frame 
+    real_offset = gripper_frame.inv() * obj_frame
+
+    # Store the new runtime offset for calculation 
+    RUNTIME_GRASP_OFFSET[obj_name] = real_offset
+
+    # Log the grasp offset
+    logger.log_grasp_offset(obj_name, real_offset.t, "runtime")
+    logger.debug(f"  Gripper: [{gripper_frame.t[0]}, {gripper_frame.t[1]}, {gripper_frame.t[2]}]")
+    logger.debug(f"  Object:  [{obj_frame.t[0]}, {obj_frame.t[1]}, {obj_frame.t[2]}]")
+
+    return real_offset
+
+
+def clear_grasp_offset(obj_name):
+    """
+    Call after release. Clears stored grasp offset.
+    """
+
+    if obj_name in RUNTIME_GRASP_OFFSET:
+        del RUNTIME_GRASP_OFFSET[obj_name]
+        ProjectLogger.get_instance().debug(f"Grasp offset cleared for {obj_name}")
+
+
+def get_grasp_transform(obj_name):
+    """
+    Calculate the transform from gripper to object frame.
+    The purpose is calculating for collision control.
+    Like checking i have the gripper knowledge but where is the obstacle ?
+
+    Math explanation:
+    - Grasp frame is computed as: 
+        Grasp = Obj * Tz(tz) * Rz(rz) * Rx(-rx) * Tz(td)
+    - To get Object from Grasp: 
+        Obj = Grasp * (Tz(td) * Rx * Rz * Tz(tz))^-1
+    - The inverse is: 
+        Tz(-td) * Rx(rx) * Rz(-rz) * Tz(-tz)
+
+    This transform can be set as robot.tool in RTB so that fkine()
+    returns the OBJECT CENTER pose directly instead of gripper TCP.
+
+    Important thing the td must be included, without it FK will compute wrong
+    object position during held_object collision check (2cm error for cylinder).
+
+    From author:
+        "This function is kinda cool and necessary for collision control :P"
+
+    Reference: https://petercorke.github.io/robotics-toolbox-python/arm_erobot.html#tool
+    """
+    config = GRASP_CONFIG.get(obj_name, DEFAULT_GRASP_CONFIG)
+    rx = config.get("rx", np.pi)
+    rz = config.get("rz", 0)
+    tz = config.get("tz", 0)
+    td = config.get("td", 0)
+
+    T_rel = sm.SE3.Tz(-td) * sm.SE3.Rx(rx) * sm.SE3.Rz(-rz) * sm.SE3.Tz(-tz)
+    return T_rel
+
+
 def is_q_valid_with_held_object(d, m, q, robot_rtb, held_object, target_object=None):
     """
     Check if joint configuration is collision-free INCLUDING the held object.
 
-    When the robot is holding an object and planning a path (e.g., to drop location),
-    we need to check if the HELD OBJECT would collide with obstacles along the path.
-
-    MuJoCo's mj_forward computes collision at a single instant based on qpos.
-    Problem: When we set robot joints, the held object doesn't move with the gripper.
-    Solution: Move the held object to gripper position before calling mj_forward.
+    Uses Roboticstoolbox 'tool' property to calculate object pose automatically.
+    This correctly computes where the held object would be in world coordinates
+    based on the grasp transform (how the object was picked up).
 
     Args:
         d: MuJoCo data
         m: MuJoCo model
         q: Joint configuration to test
-        robot_rtb: roboticstoolbox robot (for FK to compute gripper position)
+        robot_rtb: roboticstoolbox robot (for FK to compute object position)
         held_object: Name of object being held ("box", "cylinder", "t_block")
-        target_object: Object we're approaching (collisions ignored, e.g., drop_point)
+        target_object: Object we're approaching (collisions ignored)
 
     Returns:
         True if configuration is collision-free, False otherwise
     """
     from spatialmath import UnitQuaternion
 
-    # 1. Save current state
+    # 1. Save current state and robot tool
     q0 = ur_get_qpos(d, m)
+    original_tool = robot_rtb.tool
 
     # 2. Get held object's qpos address and save original position
     held_obj_id = mj.mj_name2id(m, mj.mjtObj.mjOBJ_BODY, held_object)
@@ -263,21 +401,30 @@ def is_q_valid_with_held_object(d, m, q, robot_rtb, held_object, target_object=N
     # 3. Set robot to test configuration
     ur_set_qpos(d, q)
 
-    # 4. Compute gripper frame using FK
+    # 4. Calculate where object would be at this robot config
     gripper_frame = robot_rtb.fkine(q)
 
-    # 4b. Apply grasp offset - object center is NOT at gripper position
-    # Offset is in gripper's local frame, need to transform to world frame
-    local_offset = GRASP_OFFSETS.get(held_object, np.zeros(3))
-    world_offset = gripper_frame.R @ local_offset
-    obj_pos = gripper_frame.t + world_offset
+    if held_object in RUNTIME_GRASP_OFFSET:
+        # Use measured real offset
+        obj_frame = gripper_frame * RUNTIME_GRASP_OFFSET[held_object]
+    else:
+        # Use static config (fallback)
+        obj_frame = gripper_frame * get_grasp_transform(held_object)
 
-    # Object orientation matches gripper orientation
-    gripper_quat = UnitQuaternion(gripper_frame.R).A  # [w, x, y, z]
+    # Extract position and orientation
+    obj_pos = obj_frame.t
 
-    # Move object to computed position (with offset)
+    # Convert rotation to quaternion - use SO3 for robustness
+    obj_quat = UnitQuaternion(SO3(obj_frame.R, check=False)).A  # [w, x, y, z]
+
+
+    # Move object to computed position
+    # Free joint için qpos layout:
+    # [0:3] = pozisyon (x, y, z)
+    # [3:7] = quaternion (w, x, y, z)
+    # Reference: https://mujoco.readthedocs.io/en/stable/modeling.html#floating-objects
     d.qpos[held_obj_qpos_adr:held_obj_qpos_adr + 3] = obj_pos
-    d.qpos[held_obj_qpos_adr + 3:held_obj_qpos_adr + 7] = gripper_quat
+    d.qpos[held_obj_qpos_adr + 3:held_obj_qpos_adr + 7] = obj_quat
 
     # 5. Compute forward dynamics (collision detection)
     mj.mj_forward(m, d)
@@ -292,6 +439,10 @@ def is_q_valid_with_held_object(d, m, q, robot_rtb, held_object, target_object=N
             contact = d.contact[i]
             geom1_name = m.geom(contact.geom1).name
             geom2_name = m.geom(contact.geom2).name
+
+            # # Skip gripper self-collision (pads touching when closed)
+            # if (geom1_name, geom2_name) in IGNORED_COLLISION_PAIRS:
+            #     continue
 
             robot_involved = geom1_name in UR_COLLISION_GEOMS or geom2_name in UR_COLLISION_GEOMS
             held_involved = geom1_name in held_geoms or geom2_name in held_geoms
@@ -312,8 +463,6 @@ def is_q_valid_with_held_object(d, m, q, robot_rtb, held_object, target_object=N
 
             # If robot or held object is in collision with something else
             if robot_involved or held_involved:
-                # Debug: uncomment to see collisions
-                print(f"  [COLLISION] {geom1_name} <-> {geom2_name}")
                 collision = True
                 break
 

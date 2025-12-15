@@ -1,5 +1,5 @@
 """
-Utility functions for mujoco and configuration loading.
+Utility functions for mujoco, configuration loading, and logging.
 """
 from .mujoco_utils import (
     # Shared constants
@@ -18,3 +18,4 @@ from .mujoco_utils import (
     get_model_path,
     get_default_planner,
 )
+from .logger import ProjectLogger, get_logger
