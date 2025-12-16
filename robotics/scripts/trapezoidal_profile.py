@@ -116,7 +116,6 @@ class TrapezoidalProfile:
         Args:
             q_i: Initial position q(t_i)
             q_f: Final position q(t_f)
-            t_i: Initial time (default: 0)
             t_f: Final time (duration if t_i=0)
             t_i: Initial time (default: 0)
             q_dot_c: Cruise velocity (optional). If both are provided, q_dot_c takes precedence.

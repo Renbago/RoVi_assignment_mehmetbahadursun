@@ -10,7 +10,7 @@ import yaml
 import numpy as np
 import os
 from utils.logger import ProjectLogger
-from spatialmath import SO3
+from spatialmath import SO3, UnitQuaternion
 
 # ============================================================
 # Shared Robot Constants
@@ -382,8 +382,6 @@ def is_q_valid_with_held_object(d, m, q, robot_rtb, held_object, target_object=N
     Returns:
         True if configuration is collision-free, False otherwise
     """
-    from spatialmath import UnitQuaternion
-
     # 1. Save current state and robot tool
     q0 = ur_get_qpos(d, m)
     original_tool = robot_rtb.tool
@@ -469,6 +467,7 @@ def is_q_valid_with_held_object(d, m, q, robot_rtb, held_object, target_object=N
     # 7. Restore original state
     ur_set_qpos(d, q0)
     d.qpos[held_obj_qpos_adr:held_obj_qpos_adr + 7] = held_obj_qpos_original
+    robot_rtb.tool = original_tool
     mj.mj_forward(m, d)
 
     return not collision

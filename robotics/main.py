@@ -21,7 +21,6 @@ from PIL import Image
 from robot import *
 from cam import *
 from scripts import (
-    plan,
     StateValidator,
     plot_multi_joint_trajectory,
     plot_all_joints_derivatives,
@@ -69,41 +68,6 @@ def execute_movement(robot, cmd_queue, d, m, viewer):
         mujoco.mj_step(m, d)
         viewer.sync()
     return cmd_queue
-
-
-def run_sequence(robot, start_q, goal_q, d, m, viewer, planner_type="rrt"):
-    """
-    run a single planning + execution
-    automatically increase sequence counter and logs as sequence_1, sequence_2, etc.
-    """
-    global sequence_counter, all_trajectories, movement_boundaries, sequence_names
-    
-    sequence_counter += 1
-    seq_name = f"sequence_{sequence_counter}"
-    sequence_names.append(seq_name)
-    
-    print(f"\n=== {seq_name} ===")
-    
-    path = plan(d=d, m=m, start_q=start_q, goal_q=goal_q, planner_type=planner_type)
-    
-    if path:
-        robot.add_planned_path(path)
-        robot.move_j_via(points=path, t=300)
-        
-        # Visualize dense path (small circles trace)
-        robot.visualize_trajectory(viewer, use_queue=True, sample_rate=5)
-        
-        cmd_queue = robot.queue.copy()
-        all_trajectories.extend([q.copy() for q, _ in robot.queue])
-        robot.queue.clear()
-        
-        execute_movement(robot, cmd_queue, d, m, viewer)
-        movement_boundaries.append(len(all_trajectories))
-        print(f"{seq_name} complete!")
-        return True
-    else:
-        print(f"{seq_name} failed - no path found")
-        return False
 
 
 def save_object_results(obj_name, trajectory, planner_type, time_step):

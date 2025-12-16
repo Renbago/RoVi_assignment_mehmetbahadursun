@@ -1,4 +1,4 @@
-# Helpers module init
+# Scripts module init
 from .trapezoidal_profile import (
     TrapezoidalProfile,
     generate_via_point_trajectory
@@ -19,6 +19,17 @@ from .manipulation import (
 )
 
 from .planners import (
-    plan,
-    StateValidator
+    PathPlanner,
+    StateValidator,
+)
+
+# IK Planning modules
+from .ik_simple import (
+    plan_simple_ik,
+    plan_to_frame,
+)
+
+from .ik_goal_region import (
+    IKGoalRegion,
+    plan_with_goal_region,
 )

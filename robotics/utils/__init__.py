@@ -11,11 +11,16 @@ from .mujoco_utils import (
     ur_get_qpos,
     get_mjobj_frame,
     is_q_valid,
+    is_q_valid_with_held_object,
     # Config functions
     load_config,
     get_p2p_waypoints,
     get_objects_to_move,
     get_model_path,
     get_default_planner,
+    get_ik_mode,
+    # Grasp offset functions
+    compute_real_grasp_offset,
+    clear_grasp_offset,
 )
 from .logger import ProjectLogger, get_logger

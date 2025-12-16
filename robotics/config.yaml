@@ -27,7 +27,7 @@ planner:
   default_type: "rrt"  # "rrt" or "prm" or "p2p"
 
 # IK settings
-# Reference: scripts/ik_calculator.py IKCalculator class
+# Reference: scripts/ik_simple.py and ik_goal_region.py
 ik:
   mode: "simple"  # "simple" (direct IK) or "goal_region" (OMPL GoalSampleableRegion)
 

@@ -1,23 +1,48 @@
 """
-This file is for planners so everything can be added here
-dynamicly change the planner type
+Pure C-space path planning (joint space to joint space).
+
+This module handles RRT/PRM planning in configuration space.
+For IK-based planning (Cartesian to joint space), see ik_simple.py and ik_goal_region.py
+
+Architecture:
+- planners.py: Configuration space planning (q -> q)
+- ik_simple.py: IK + Planning with closest solution (frame -> q)
+- ik_goal_region.py: IK + Planning with GoalSampleableRegion (frame -> q)
+
+Reference:
+- OMPL RRT: https://ompl.kavrakilab.org/classompl_1_1geometric_1_1RRT.html
+- OMPL PRM: https://ompl.kavrakilab.org/classompl_1_1geometric_1_1PRM.html
 
 Author: Mehmet Baha Dursun
 Email: medur25@student.sdu.dk
 """
+
 import numpy as np
+from typing import Optional, List, Dict
 from ompl import base as ob
 from ompl import geometric as og
-import spatialmath as sm
-from utils.mujoco_utils import is_q_valid, is_q_valid_with_held_object, Q_HOME
-from scripts.ik_goal_region import IKGoalRegion
 
-# Planner settings
-PLANNER_TIMEOUT = 5.0
+from utils.logger import ProjectLogger
+from utils.mujoco_utils import is_q_valid, is_q_valid_with_held_object, Q_HOME, load_config, get_p2p_waypoints
+
+# Planner constants
+PLANNER_TIMEOUT = 15.0  # Increased for held object transport
 JOINT_BOUNDS_LOW = -np.pi
 JOINT_BOUNDS_HIGH = np.pi
 NUM_JOINTS = 6
 
+
+def normalize_angles(q: np.ndarray) -> np.ndarray:
+    """
+    Normalize joint angles to [-pi, pi].
+
+    Args:
+        q: Joint configuration
+
+    Returns:
+        Normalized configuration
+    """
+    return np.arctan2(np.sin(q), np.cos(q))
 
 class StateValidator:
     """
@@ -28,10 +53,12 @@ class StateValidator:
         m: MuJoCo model
         num_joint: Number of joints (6 for UR5)
         target_object: Object being approached (collisions ignored)
-        held_object: Object being held during transport (for held object collision check)
-        robot_rtb: roboticstoolbox robot (needed for FK when held_object is set)
+        held_object: Object being held during transport
+        robot_rtb: roboticstoolbox robot (for FK when held_object is set)
     """
-    def __init__(self, d, m, num_joint, target_object=None, held_object=None, robot_rtb=None):
+
+    def __init__(self, d, m, num_joint: int, target_object: str = None,
+                 held_object: str = None, robot_rtb=None):
         self.d = d
         self.m = m
         self.num_joint = num_joint
@@ -40,11 +67,13 @@ class StateValidator:
         self.robot_rtb = robot_rtb
         self.all_trajectories = []
 
-    def __call__(self, state):
+    def __call__(self, state) -> bool:
+        """
+        Check if state is collision-free.
+        """
         q_pose = [state[i] for i in range(self.num_joint)]
 
         if self.held_object and self.robot_rtb:
-            # Object is being held - check collision INCLUDING the held object
             return is_q_valid_with_held_object(
                 d=self.d, m=self.m, q=q_pose,
                 robot_rtb=self.robot_rtb,
@@ -52,340 +81,144 @@ class StateValidator:
                 target_object=self.target_object
             )
         else:
-            # Normal case - no object held
-            return is_q_valid(d=self.d, m=self.m, q=q_pose, target_object=self.target_object) 
+            return is_q_valid(d=self.d, m=self.m, q=q_pose,
+                             target_object=self.target_object)
 
-def generate_p2p_path(robot, start_q, target_frame, obj_name="box"):
+
+class PathPlanner:
     """
-    Generate P2P path using pre-recorded waypoints from config.
-    Returns list of joint configurations for the trajectory.
+    Configuration space path planner using OMPL RRT/PRM.
+
+    Usage:
+        planner = PathPlanner()
+        path = planner.plan(d, m, start_q, goal_q)
     """
-    from utils import load_config, get_p2p_waypoints
 
-    config = load_config()
-    waypoints = get_p2p_waypoints(config, obj_name)
+    def __init__(self, config: Optional[Dict] = None):
+        """
+        Initialize PathPlanner.
 
-    if not waypoints:
-        print(f"[P2P] No waypoints found for {obj_name}, using empty path")
-        return []
+        Args:
+            config: Optional config dict
+        """
+        self.config = config or load_config()
+        self.logger = ProjectLogger.get_instance()
+        self.timeout = PLANNER_TIMEOUT
 
-    # Append home position at the end
-    path = waypoints + [Q_HOME]
+    def plan(self, d, m, start_q: np.ndarray, goal_q: np.ndarray,
+             planner_type: str = "rrt", robot=None, target_frame=None,
+             held_object: str = None,
+             target_object: str = None) -> Optional[List[np.ndarray]]:
+        """
+        Configuration space planning (joint space to joint space).
 
-    print(f"[P2P] Generated {len(path)} waypoints for {obj_name}")
-    return path
+        Supports:
+        - 'rrt': Rapidly-exploring Random Tree
+        - 'prm': Probabilistic Roadmap
+        - 'p2p': Pre-recorded waypoints from config
 
-def plan(d, m, start_q, goal_q, planner_type="rrt", robot=None, target_frame=None):
-    """
-    Unified planner function.
-    For now only supports but i want to add more:
-    - 'rrt', 'prm', 'p2p':
-    """
-    
-    # P2P - uses pre-recorded waypoints
-    if planner_type.lower() == "p2p":
-        return generate_p2p_path(robot, start_q, target_frame, obj_name="box")
+        Args:
+            d: MuJoCo data
+            m: MuJoCo model
+            start_q: Starting joint configuration
+            goal_q: Goal joint configuration
+            planner_type: "rrt", "prm", or "p2p"
+            robot: for p2p
+            target_frame: SE3 target frame (for p2p)
+            held_object: Object being held (for collision check)
+            target_object: Object to ignore in collision check
 
-    # RRT / PRM
-    space = ob.RealVectorStateSpace(NUM_JOINTS)
-    bounds = ob.RealVectorBounds(NUM_JOINTS)
-    bounds.setLow(JOINT_BOUNDS_LOW)
-    bounds.setHigh(JOINT_BOUNDS_HIGH)
-    space.setBounds(bounds)
-    
-    ss = og.SimpleSetup(space)
-    validator = StateValidator(d, m, NUM_JOINTS)
-    ss.setStateValidityChecker(ob.StateValidityCheckerFn(validator))
+        Returns:
+            List of joint configurations or None
 
-    # Increase collision checking resolution
-    ss.getSpaceInformation().setStateValidityCheckingResolution(0.01)
+        Reference:
+        - https://ompl.kavrakilab.org/planners.html
+        """
+        # P2P uses pre-recorded waypoints
+        if planner_type.lower() == "p2p":
+            return self._generate_p2p_path(robot, start_q, target_frame, "box")
 
-    start = ob.State(space)
-    goal = ob.State(space)
+        self.logger.log_planning_start(planner_type, start_q, goal_q,
+                                       target_object, held_object)
 
-    for i in range(NUM_JOINTS):
-        start[i] = start_q[i]
-        goal[i] = goal_q[i]
+        start_q = normalize_angles(np.array(start_q))
+        goal_q = normalize_angles(np.array(goal_q))
 
-    ss.setStartAndGoalStates(start, goal)
+        # Get robot_rtb for FK (held object collision check)
+        robot_rtb = robot.robot_ur5 if robot and hasattr(robot, 'robot_ur5') else None
 
-    if planner_type.lower() == "prm":
-        planner = og.PRM(ss.getSpaceInformation())
-    else:
-        planner = og.RRT(ss.getSpaceInformation())
+        # Setup state space
+        space = ob.RealVectorStateSpace(NUM_JOINTS)
+        bounds = ob.RealVectorBounds(NUM_JOINTS)
+        bounds.setLow(JOINT_BOUNDS_LOW)
+        bounds.setHigh(JOINT_BOUNDS_HIGH)
+        space.setBounds(bounds)
 
-    ss.setPlanner(planner)
+        ss = og.SimpleSetup(space)
+        validator = StateValidator(d, m, NUM_JOINTS, target_object,
+                                   held_object, robot_rtb)
+        ss.setStateValidityChecker(ob.StateValidityCheckerFn(validator))
+        ss.getSpaceInformation().setStateValidityCheckingResolution(0.005)
 
-    solved = ss.solve(PLANNER_TIMEOUT)
+        start = ob.State(space)
+        goal = ob.State(space)
+        for i in range(NUM_JOINTS):
+            start[i] = start_q[i]
+            goal[i] = goal_q[i]
 
-    if solved:
-        # Simplify path (short-cutting to remove unnecessary waypoints)
-        ss.simplifySolution()
+        ss.setStartAndGoalStates(start, goal)
 
-        path = ss.getSolutionPath()
-        print(f"[Planner] Path length: {path.length():.2f}, states: {path.getStateCount()}")
+        # Select planner
+        if planner_type.lower() == "prm":
+            planner_obj = og.PRM(ss.getSpaceInformation())
+        else:
+            planner_obj = og.RRT(ss.getSpaceInformation())
 
-        solution_trajectory = []
-        for i in range(path.getStateCount()):
-            state = path.getState(i)
-            q_pose = [state[i] for i in range(space.getDimension())]
-            solution_trajectory.append(np.array(q_pose))
+        ss.setPlanner(planner_obj)
+        solved = ss.solve(self.timeout)
 
-        return solution_trajectory
-    else:
-        print(f"{planner_type} failed to find a path.")
+        if solved:
+            path = ss.getSolutionPath()
+            self.logger.log_planning_result(True, path.length(),
+                                           path.getStateCount(), planner_type)
+
+            trajectory = []
+            for i in range(path.getStateCount()):
+                state = path.getState(i)
+                q = np.array([state[j] for j in range(NUM_JOINTS)])
+                trajectory.append(q)
+
+            return trajectory
+
+        self.logger.error(f"{planner_type.upper()} failed within timeout!")
+        self.logger.log_planning_result(False, planner_type=planner_type)
         return None
 
+    def _generate_p2p_path(self, robot, start_q: np.ndarray,
+                            target_frame, obj_name: str) -> List[np.ndarray]:
+        """
+        Generate P2P path using pre-recorded waypoints.
 
-def plan_simple_ik(d, m, start_q, target_frame, robot, planner_type="rrt", target_object=None, held_object=None, n_samples=16):
-    """
-    Smart IK approach:
-    1. Try multiple IK solutions (J1 sweep like GoalSampleableRegion)
-    2. Find all collision-free solutions
-    3. Pick the CLOSEST one to current position (shortest path)
-    4. Use basic RRT to reach that goal
+        Args:
+            robot: Robot wrapper
+            start_q: Starting configuration
+            target_frame: Target frame (unused for p2p)
+            obj_name: Object name to get waypoints for
 
-    Pros: Robust (multiple IK) + Short paths (closest selection)
-    Cons: Slightly slower than single IK
+        Returns:
+            List of waypoints + home
+        """
+        self.logger.info(f"P2P Path Generation for: {obj_name}")
 
-    Args:
-        d: MuJoCo data
-        m: MuJoCo model
-        start_q: Starting joint configuration
-        target_frame: SE3 Cartesian target pose
-        robot: roboticstoolbox robot (for IK)
-        planner_type: "rrt" or "prm"
-        target_object: Name of target object (collisions ignored)
-        held_object: Name of object being held (for collision check)
-        n_samples: Number of IK attempts with different J1 seeds
+        waypoints = get_p2p_waypoints(self.config, obj_name)
 
-    Returns:
-        List of joint configurations (trajectory) or None
-    """
-    print(f"[SmartIK] Computing {n_samples} IK solutions...")
-    if held_object:
-        print(f"[SmartIK] Held object: {held_object}")
-    print(f"[SmartIK] Target position: {target_frame.t}")
+        if not waypoints:
+            self.logger.warning(f"No waypoints found for {obj_name}")
+            return []
 
-    valid_solutions = []
-    ik_converged = 0
-    collision_failed = 0
+        path = waypoints + [Q_HOME]
+        self.logger.info(f"P2P generated {len(path)} waypoints")
 
-    # Sweep J1 (base joint) to find multiple IK solutions
-    for i in range(n_samples):
-        theta = -np.pi + (2 * np.pi * i / n_samples)
-        q_init = np.zeros(6)
-        q_init[0] = theta
-
-        result = robot.ik_LM(Tep=target_frame, q0=q_init)
-
-        if result[1]:  # IK converged
-            ik_converged += 1
-            goal_q = result[0]
-
-            # Check if collision-free
-            if held_object:
-                is_valid = is_q_valid_with_held_object(d, m, goal_q, robot, held_object, target_object)
-            else:
-                is_valid = is_q_valid(d, m, goal_q, target_object)
-
-            if is_valid:
-                # Check uniqueness
-                is_unique = True
-                for existing in valid_solutions:
-                    if np.linalg.norm(goal_q - existing) < 0.1:
-                        is_unique = False
-                        break
-
-                if is_unique:
-                    valid_solutions.append(goal_q)
-            else:
-                collision_failed += 1
-
-    if not valid_solutions:
-        print(f"[SmartIK] No valid IK solutions! (IK converged: {ik_converged}, collision failed: {collision_failed})")
-        return None
-
-    # Pick the CLOSEST solution to current position
-    distances = [np.linalg.norm(sol - start_q) for sol in valid_solutions]
-    best_idx = np.argmin(distances)
-    goal_q = valid_solutions[best_idx]
-
-    print(f"[SmartIK] Found {len(valid_solutions)} valid, picked closest (dist: {distances[best_idx]:.2f})")
-    print(f"[SmartIK] Goal J1: {np.degrees(goal_q[0]):.1f}deg")
-
-    # Use basic RRT to reach the goal
-    space = ob.RealVectorStateSpace(NUM_JOINTS)
-    bounds = ob.RealVectorBounds(NUM_JOINTS)
-    bounds.setLow(JOINT_BOUNDS_LOW)
-    bounds.setHigh(JOINT_BOUNDS_HIGH)
-    space.setBounds(bounds)
-
-    ss = og.SimpleSetup(space)
-    validator = StateValidator(d, m, NUM_JOINTS, target_object, held_object, robot)
-    ss.setStateValidityChecker(ob.StateValidityCheckerFn(validator))
-
-    # Increase collision checking resolution (default is 0.05 = 5%)
-    # Lower value = more checks = safer paths but slower
-    ss.getSpaceInformation().setStateValidityCheckingResolution(0.01)  # 1%
-
-    start = ob.State(space)
-    goal = ob.State(space)
-    for i in range(NUM_JOINTS):
-        start[i] = start_q[i]
-        goal[i] = goal_q[i]
-
-    ss.setStartAndGoalStates(start, goal)
-
-    if planner_type.lower() == "prm":
-        planner_obj = og.PRM(ss.getSpaceInformation())
-    else:
-        planner_obj = og.RRT(ss.getSpaceInformation())
-
-    ss.setPlanner(planner_obj)
-    solved = ss.solve(PLANNER_TIMEOUT)
-
-    if solved:
-        # Simplify path (short-cutting to remove unnecessary waypoints)
-        ss.simplifySolution()
-
-        path = ss.getSolutionPath()
-        print(f"[SmartIK] Path length: {path.length():.2f}, states: {path.getStateCount()}")
-
-        trajectory = []
-        for i in range(path.getStateCount()):
-            state = path.getState(i)
-            q = np.array([state[j] for j in range(NUM_JOINTS)])
-            trajectory.append(q)
-        return trajectory
-
-    print("[SmartIK] RRT failed to find path!")
-    return None
+        return path
 
 
-def plan_with_goal_region(d, m, start_q, target_frame, robot, planner_type="rrt", target_object=None, held_object=None):
-    """
-    GoalSampleableRegion approach:
-    1. Compute multiple IK solutions (16 attempts)
-    2. RRTConnect samples from valid goals
-    3. Finds easiest-to-reach configuration
-
-    Pros: Finds optimal IK solution automatically
-    Cons: More complex, paths may be longer
-
-    Args:
-        d: MuJoCo data
-        m: MuJoCo model
-        start_q: Starting joint configuration
-        target_frame: SE3 Cartesian target pose (NOT joint goal!)
-        robot: roboticstoolbox robot (for IK)
-        planner_type: "rrt" or "prm"
-        target_object: Name of target object (collisions with it are ignored)
-        held_object: Name of object being held during transport (for collision check)
-
-    Returns:
-        List of joint configurations (trajectory) or None
-    """
-    # Setup state space
-    space = ob.RealVectorStateSpace(NUM_JOINTS)
-    bounds = ob.RealVectorBounds(NUM_JOINTS)
-    bounds.setLow(JOINT_BOUNDS_LOW)
-    bounds.setHigh(JOINT_BOUNDS_HIGH)
-    space.setBounds(bounds)
-
-    # Setup space information with collision checker
-    # Pass target_object so we only ignore collisions with THAT object
-    # Pass held_object for transport collision checking
-    si = ob.SpaceInformation(space)
-    validator = StateValidator(
-        d, m, NUM_JOINTS,
-        target_object=target_object,
-        held_object=held_object,
-        robot_rtb=robot
-    )
-    si.setStateValidityChecker(ob.StateValidityCheckerFn(validator))
-
-    # Increase collision checking resolution
-    si.setStateValidityCheckingResolution(0.01)
-
-    si.setup()
-
-    # Create goal region with multiple IK solutions
-    goal = IKGoalRegion(si, robot, target_frame, d, m, target_object=target_object, held_object=held_object)
-
-    if not goal.hasValidSolution():
-        print("[Planner] No valid IK solutions found for target!")
-        return None
-
-    # Setup problem definition
-    pdef = ob.ProblemDefinition(si)
-
-    # Set start state
-    start = ob.State(space)
-    for i in range(NUM_JOINTS):
-        start[i] = start_q[i]
-    pdef.addStartState(start)
-
-    # Set goal REGION (not single state!)
-    pdef.setGoal(goal)
-
-    # Choose planner
-    # RRTConnect works well with goal regions - bidirectional search
-    if planner_type.lower() == "prm":
-        planner = og.PRM(si)
-    else:
-        planner = og.RRTConnect(si)
-
-    planner.setProblemDefinition(pdef)
-    planner.setup()
-
-    # Solve
-    solved = planner.solve(PLANNER_TIMEOUT)
-
-    if solved:
-        path = pdef.getSolutionPath()
-
-        # Simplify path (short-cutting to remove unnecessary waypoints)
-        simplifier = og.PathSimplifier(si)
-        simplifier.simplify(path, 1.0)  # 1 second timeout
-
-        print(f"[GoalRegion] Path length: {path.length():.2f}, states: {path.getStateCount()}")
-
-        # Extract trajectory
-        trajectory = []
-        for i in range(path.getStateCount()):
-            state = path.getState(i)
-            q = np.array([state[j] for j in range(NUM_JOINTS)])
-            trajectory.append(q)
-
-        # Log which goal was reached
-        final_q = trajectory[-1]
-        print(f"[GoalRegion] Final config J1: {np.degrees(final_q[0]):.1f}deg")
-
-        return trajectory
-    else:
-        print(f"[GoalRegion] {planner_type} failed to find a path.")
-        return None
-
-
-def plan_to_frame(d, m, start_q, target_frame, robot, planner_type="rrt",
-                  target_object=None, held_object=None, ik_mode="simple"):
-    """
-    Unified planning function - selects between IK modes.
-
-    Args:
-        ik_mode: "simple" (Exercise 9 style) or "goal_region" (GoalSampleableRegion)
-        ... other args same as plan_simple_ik/plan_with_goal_region
-
-    Returns:
-        List of joint configurations (trajectory) or None
-    """
-    if ik_mode == "goal_region":
-        return plan_with_goal_region(
-            d, m, start_q, target_frame, robot, planner_type, target_object, held_object
-        )
-    else:
-        # Default to simple IK
-        return plan_simple_ik(
-            d, m, start_q, target_frame, robot, planner_type, target_object, held_object
-        )
