@@ -23,4 +23,11 @@ from .mujoco_utils import (
     compute_real_grasp_offset,
     clear_grasp_offset,
 )
-from .logger import ProjectLogger, get_logger
+from .logger import (
+    ProjectLogger,
+    get_logger,
+    TrajectoryDataLogger,
+    TrajectoryRecord,
+    SessionData,
+    get_trajectory_logger
+)

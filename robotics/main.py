@@ -27,9 +27,13 @@ from scripts import (
     plot_combined_trajectory,
     pick_object,
     place_object,
-    return_to_home
+    return_to_home,
+    execute_p2p_sequence
 )
-from utils import load_config, get_objects_to_move, get_model_path, get_default_planner
+from utils import (
+    load_config, get_objects_to_move, get_model_path, get_default_planner,
+    get_trajectory_logger
+)
 
 
 # params for sequence tracking
@@ -146,6 +150,10 @@ if __name__ == "__main__":
         robot = UR5robot(data=d, model=m)
         planner_type = input(f"Select planner (rrt/prm/p2p) [{default_planner}]: ").strip().lower() or default_planner
 
+        # Initialize trajectory data logger for JSON export
+        traj_logger = get_trajectory_logger()
+        traj_logger.start_session(planner_type, config)
+
         # Store trajectories per object for combined plot
         trajectories_per_object = {}
 
@@ -159,30 +167,46 @@ if __name__ == "__main__":
             obj_trajectory = []
             obj_boundaries = [0]
 
-            # Pick up object
-            pick_success = pick_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
+            # P2P uses pre-recorded waypoints from config.yaml
+            if planner_type.lower() == "p2p":
+                p2p_success = execute_p2p_sequence(robot, obj_name, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
+                if not p2p_success:
+                    print(f"[ERROR] P2P sequence failed for {obj_name}")
+            else:
+                # RRT/PRM path planning
+                # Pick up object
+                pick_success = pick_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
 
-            # Place object (with retry on failure)
-            place_success = False
-            if pick_success:
-                place_success = place_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
-
-                # Retry once if place failed
-                if not place_success:
-                    print(f"[RETRY] Place failed for {obj_name} - retrying...")
+                # Place object (with retry on failure)
+                place_success = False
+                if pick_success:
                     place_success = place_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
 
+                    # Retry once if place failed
                     if not place_success:
-                        print(f"[ERROR] Place retry failed for {obj_name} - stopping execution")
-                        raise RuntimeError(f"Could not place {obj_name} after retry")
-            else:
-                print(f"Skipping place for {obj_name} - pick failed")
+                        print(f"[RETRY] Place failed for {obj_name} - retrying...")
+                        place_success = place_object(robot, obj_name, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
+
+                        if not place_success:
+                            print(f"[ERROR] Place retry failed for {obj_name} - stopping execution")
+                            raise RuntimeError(f"Could not place {obj_name} after retry")
+                else:
+                    print(f"Skipping place for {obj_name} - pick failed")
 
             # Return to home position for next object
             return_to_home(robot, planner_type, d, m, viewer, execute_movement, obj_trajectory, obj_boundaries)
 
             # Save results for this object
             save_object_results(obj_name, obj_trajectory, planner_type, UR5robot.TIME_STEP)
+
+            # Log to JSON for later visualization/analysis
+            traj_logger.add_trajectory(
+                obj_name=obj_name,
+                trajectory=obj_trajectory,
+                planner_type=planner_type,
+                duration=len(obj_trajectory) * UR5robot.TIME_STEP,
+                metadata={'boundaries': obj_boundaries}
+            )
 
             # Store for combined plot
             trajectories_per_object[obj_name] = obj_trajectory.copy()
@@ -196,6 +220,12 @@ if __name__ == "__main__":
 
         # Save combined plot (all objects side by side)
         save_combined_results(trajectories_per_object, planner_type, UR5robot.TIME_STEP)
+
+        # Save JSON session data for later analysis
+        json_path = traj_logger.save()
+        if json_path:
+            print(f"\n--- JSON Data Saved ---")
+            print(f"  {json_path}")
 
         # keep viewer open
         print("\nSimulation complete. Close viewer window to exit.")

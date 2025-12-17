@@ -15,7 +15,8 @@ from .trajectory_plotting import (
 from .manipulation import (
     pick_object,
     place_object,
-    return_to_home
+    return_to_home,
+    execute_p2p_sequence
 )
 
 from .planners import (
@@ -32,4 +33,9 @@ from .ik_simple import (
 from .ik_goal_region import (
     IKGoalRegion,
     plan_with_goal_region,
+)
+
+from .ik_p2p import (
+    P2PFramePlanner,
+    compute_fk_positions,
 )

@@ -178,7 +178,25 @@ class PathPlanner:
         solved = ss.solve(self.timeout)
 
         if solved:
-            path = ss.getSolutionPath()
+            # Check if P2P data collection mode is enabled
+            p2p_data_collection = self.config.get('planner', {}).get('p2p', {}).get(
+                'data_collection_rrt_simplified', False
+            )
+
+            if p2p_data_collection:
+                # OMPL path simplification for P2P waypoint extraction
+                # Reference: https://ompl.kavrakilab.org/classompl_1_1geometric_1_1PathSimplifier.html
+                raw_path = ss.getSolutionPath()
+                raw_count = raw_path.getStateCount()
+
+                ss.simplifySolution()
+                path = ss.getSolutionPath()
+
+                self.logger.info(f"[P2P-DATA] Path simplified: {raw_count} -> {path.getStateCount()} states")
+                self._log_p2p_waypoints(path)
+            else:
+                path = ss.getSolutionPath()
+
             self.logger.log_planning_result(True, path.length(),
                                            path.getStateCount(), planner_type)
 
@@ -193,6 +211,27 @@ class PathPlanner:
         self.logger.error(f"{planner_type.upper()} failed within timeout!")
         self.logger.log_planning_result(False, planner_type=planner_type)
         return None
+
+    def _log_p2p_waypoints(self, path) -> None:
+        """
+        Log simplified path waypoints in config.yaml format for P2P data collection.
+
+        Output format is ready to copy-paste into config.yaml p2p_frames section.
+
+        Args:
+            path: OMPL geometric path
+        """
+        self.logger.info("[P2P-DATA] ========== SIMPLIFIED WAYPOINTS ==========")
+        self.logger.info("[P2P-DATA] Copy these to config.yaml -> p2p_frames:")
+        self.logger.info("[P2P-DATA] frames:")
+
+        for i in range(path.getStateCount()):
+            state = path.getState(i)
+            q = [round(state[j], 4) for j in range(NUM_JOINTS)]
+            self.logger.info(f"[P2P-DATA]   - type: \"joint\"")
+            self.logger.info(f"[P2P-DATA]     q: {q}")
+
+        self.logger.info("[P2P-DATA] ============================================")
 
     def _generate_p2p_path(self, robot, start_q: np.ndarray,
                             target_frame, obj_name: str) -> List[np.ndarray]:

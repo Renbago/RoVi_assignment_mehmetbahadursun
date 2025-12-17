@@ -334,7 +334,22 @@ def _plan_rrt_to_goal(d, m, start_q: np.ndarray, goal_q: np.ndarray,
             logger.log_planning_result(False, planner_type=log_label)
             return None
 
-        path = ss.getSolutionPath()
+        # Check if P2P data collection mode is enabled
+        config = load_config()
+        p2p_data_collection = config.get('planner', {}).get('p2p', {}).get(
+            'data_collection_rrt_simplified', False
+        )
+
+        if p2p_data_collection:
+            # OMPL path simplification for P2P waypoint extraction
+            # Reference: https://ompl.kavrakilab.org/classompl_1_1geometric_1_1PathSimplifier.html
+            raw_count = ss.getSolutionPath().getStateCount()
+            ss.simplifySolution()
+            path = ss.getSolutionPath()
+            logger.info(f"[P2P-DATA] Path simplified: {raw_count} -> {path.getStateCount()} states")
+        else:
+            path = ss.getSolutionPath()
+
         logger.log_planning_result(True, path.length(),
                                    path.getStateCount(), log_label)
 
@@ -345,6 +360,18 @@ def _plan_rrt_to_goal(d, m, start_q: np.ndarray, goal_q: np.ndarray,
             trajectory.append(q)
 
         logger.debug(f"Trajectory waypoints: {len(trajectory)}")
+
+        # Log waypoints for P2P data collection
+        if p2p_data_collection:
+            logger.info("[P2P-DATA] ========== SIMPLIFIED WAYPOINTS ==========")
+            logger.info("[P2P-DATA] Copy these to config.yaml -> p2p_frames:")
+            logger.info("[P2P-DATA] frames:")
+            for q in trajectory:
+                q_rounded = [round(v, 4) for v in q]
+                logger.info(f"[P2P-DATA]   - type: \"joint\"")
+                logger.info(f"[P2P-DATA]     q: {q_rounded}")
+            logger.info("[P2P-DATA] ============================================")
+
         return trajectory
 
     logger.error("RRT failed to find path!")
@@ -421,7 +448,20 @@ def _plan_with_retry_sweep(d, m, start_q: np.ndarray, target_frame,
     solved = ss.solve(retry_timeout)
 
     if solved and ss.haveExactSolutionPath():
-        path = ss.getSolutionPath()
+        # Check if P2P data collection mode is enabled
+        p2p_data_collection = config.get('planner', {}).get('p2p', {}).get(
+            'data_collection_rrt_simplified', False
+        )
+
+        if p2p_data_collection:
+            # OMPL path simplification for P2P waypoint extraction
+            raw_count = ss.getSolutionPath().getStateCount()
+            ss.simplifySolution()
+            path = ss.getSolutionPath()
+            logger.info(f"[P2P-DATA] Path simplified: {raw_count} -> {path.getStateCount()} states")
+        else:
+            path = ss.getSolutionPath()
+
         logger.log_planning_result(True, path.length(),
                                    path.getStateCount(), "retry_sweep")
 
@@ -432,6 +472,16 @@ def _plan_with_retry_sweep(d, m, start_q: np.ndarray, target_frame,
             trajectory.append(q)
 
         logger.info("RETRY SUCCESSFUL with sweep enabled!")
+
+        # Log waypoints for P2P data collection
+        if p2p_data_collection:
+            logger.info("[P2P-DATA] ========== SIMPLIFIED WAYPOINTS (RETRY) ==========")
+            for q in trajectory:
+                q_rounded = [round(v, 4) for v in q]
+                logger.info(f"[P2P-DATA]   - type: \"joint\"")
+                logger.info(f"[P2P-DATA]     q: {q_rounded}")
+            logger.info("[P2P-DATA] ================================================")
+
         return trajectory
 
     logger.error("Retry FAILED: RRT couldn't find path!")
