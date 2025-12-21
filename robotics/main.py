@@ -28,7 +28,8 @@ from scripts import (
     pick_object,
     place_object,
     return_to_home,
-    execute_p2p_sequence
+    execute_p2p_sequence,
+    cv_demo_program
 )
 from utils import (
     load_config, get_objects_to_move, get_model_path, get_default_planner,
@@ -139,7 +140,7 @@ if __name__ == "__main__":
         # Home position for the scene
         ur_set_qpos(data=d, q_desired=UR5robot.Q_HOME)
         hande_ctrl_qpos(data=d, gripper_value=0)  # Open gripper
-
+        cv_demo_program(d, m)
 
         sim_start = time.time()
         while time.time() - sim_start < 3.0:

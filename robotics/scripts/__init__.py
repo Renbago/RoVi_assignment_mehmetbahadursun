@@ -39,3 +39,5 @@ from .ik_p2p import (
     P2PFramePlanner,
     compute_fk_positions,
 )
+
+from .cv_demo import program as cv_demo_program
