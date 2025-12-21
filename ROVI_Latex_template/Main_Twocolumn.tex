@@ -1,0 +1,389 @@
+%-----------------------------------------------------------------------------------------------------------
+% Robotics Project Report - RRT vs P2P Trajectory Comparison
+% Author: Mehmet Baha Dursun
+% Course: Robotics and Computer Vision 2025
+% Format: Twocolumn (MAX 5 pages excluding title and references)
+%-----------------------------------------------------------------------------------------------------------
+\documentclass[10pt, twocolumn]{article}
+\usepackage[a4paper, top=18mm, bottom=18mm, left=12mm, right=12mm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}      % Better quality fonts
+\usepackage{microtype}    % Better typography (kerning, spacing)
+
+% Bibliography
+\usepackage[backend=biber,style=nature]{biblatex}
+\addbibresource{references.bib}
+
+% Header/Footer
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[R]{medur25@student.sdu.dk}
+\fancyhead[L]{Robotics Project 2025}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{1pt}
+\renewcommand{\footrulewidth}{0.5pt}
+
+% Packages
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue]{hyperref}
+\graphicspath{{./Image/}}
+\usepackage[font=small,labelfont=bf]{caption}
+
+% Compact spacing
+\usepackage{titlesec}
+\titlespacing*{\section}{0pt}{1.2ex plus 0.3ex minus .1ex}{0.8ex plus .1ex}
+\titlespacing*{\subsection}{0pt}{0.8ex plus 0.3ex minus .1ex}{0.4ex plus .1ex}
+\setlength{\parskip}{0.2em}
+\setlength{\parindent}{0em}
+
+% Compact lists
+\usepackage{enumitem}
+\setlist{nosep,leftmargin=*}
+
+% Reduce float spacing (figure/table vs text) - AGGRESSIVE
+\setlength{\intextsep}{2pt plus 1pt minus 1pt}      % Space above/below in-text floats
+\setlength{\textfloatsep}{4pt plus 1pt minus 1pt}   % Space for top/bottom floats
+\setlength{\floatsep}{2pt plus 1pt minus 1pt}       % Space between floats
+\setlength{\abovecaptionskip}{2pt}                  % Space above caption
+\setlength{\belowcaptionskip}{0pt}                  % Space below caption
+\setlength{\dbltextfloatsep}{4pt plus 1pt minus 1pt} % For double-column floats
+\setlength{\dblfloatsep}{2pt plus 1pt minus 1pt}
+
+% Algorithm style
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+
+% Title setup
+\title{\vspace{-1.5cm}\textbf{Trajectory Generation for Pick-and-Place Tasks:\\ RRT vs P2P Comparison}\vspace{-0.5cm}}
+\author{Mehmet Baha Dursun -- medur25@student.sdu.dk\\
+\small University of Southern Denmark (SDU) -- Robotics and Computer Vision 2025}
+\date{}
+
+%-----------------------------------------------------------------------------------------------------------
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+%===================================================================================================
+\section{Introduction}
+
+This report presents a comparative analysis of two trajectory generation methods for robotic pick-and-place tasks: \textbf{RRT (Rapidly-exploring Random Tree)} and \textbf{P2P (Point-to-Point)}. The experiments were conducted using a UR5 robot \cite{ur5_datasheet} with a Robotiq Hand-E gripper \cite{robotiq_hande} in a MuJoCo physics simulation environment \cite{mujoco2012}. Three objects (\textbf{box, cylinder, and T-block}) were manipulated to evaluate the performance of both approaches.
+
+The primary goal is to understand the trade-offs between {automatic path planning} (RRT) and {pre-recorded motion sequences} (P2P). The analysis focuses on joint-space trajectories, velocity profiles, acceleration characteristics, and end-effector paths computed via forward kinematics.
+
+%===================================================================================================
+\section{Methods}
+
+\subsection{Differences and Similarities}
+
+Two fundamentally different trajectory generation approaches were implemented and compared:
+
+\textbf{P2P (Point-to-Point):} A deterministic, open-loop method commonly used in structured industrial environments. The environment is assumed static and fully known. Joint configurations (waypoints) are manually recorded---similar to a teach pendant---meaning collision-free paths are guaranteed by the human operator during the ``teaching'' phase. This removes the need for real-time collision checking or complex inverse kinematics (IK) during execution, but lacks flexibility: any environmental change requires manual re-teaching.
+
+\textbf{RRT (Rapidly-exploring Random Tree):} A sampling-based, closed-loop planning method \cite{lavalle1998rrt}. Only the target goal is known, and the path is autonomously generated. We use the OMPL library \cite{ompl2012} with MuJoCo \cite{mujoco2012} for collision checking. The system samples the 6-DOF configuration space (C-space) and performs real-time collision checking.
+
+\textbf{Dynamic Collision Modeling:} A critical feature of our RRT implementation is \textbf{held object collision checking}. When the gripper grasps an object, the system computes the \textit{grasp offset}---the transformation from gripper TCP to object center---using forward kinematics at the moment of grasp. During subsequent path planning, for each sampled configuration $q$, the object's world position is computed as:
+\begin{equation}
+T_{obj}(q) = FK(q) \cdot T_{grasp\_offset}
+\end{equation}
+The object is then virtually moved to this position in MuJoCo, and collision detection is performed. This treats the held object as an extension of the robot's kinematic chain, preventing collisions with the table, walls, or other objects during transport. The \texttt{StateValidator} class implements this by temporarily setting the object's pose, running \texttt{mj\_step()}, and checking contact pairs.
+
+\textbf{Goal Region Sampling:} Instead of a single IK solution, we use OMPL's \texttt{GoalSampleableRegion} \cite{ompl_goal_region} with J1 sweep (64 samples). This provides multiple valid goal configurations, increasing the probability of finding a collision-free path when some IK solutions are blocked by obstacles.
+
+\textbf{Industrial Context:} P2P is preferred in mass production due to lower computational costs and perfect repeatability. RRT becomes necessary when environment uncertainty exists or when the system must autonomously navigate around obstacles.
+
+\textbf{Common Element:} Both methods use the \textbf{Trapezoidal Velocity Profile (LSPB)} for smooth interpolation between waypoints, ensuring bounded acceleration and preventing motor damage.
+
+\subsection{Trapezoidal Velocity Profile (LSPB)}
+
+\textbf{The Problem with Linear Interpolation:} Consider linear interpolation between two joint positions:
+\begin{equation}
+q(t) = q_i + \frac{q_f - q_i}{t_f - t_i} \cdot t
+\end{equation}
+
+Taking the derivative to find velocity:
+\begin{equation}
+\dot{q}(t) = \frac{d}{dt}q(t) = \frac{q_f - q_i}{t_f - t_i} = \text{constant}
+\end{equation}
+
+The problem occurs at $t=0$: velocity must jump from $\dot{q}=0$ (rest) to this constant value \textit{instantly}. Computing the required acceleration:
+\begin{equation}
+\ddot{q} = \frac{\Delta \dot{q}}{\Delta t} = \frac{V - 0}{0} = \frac{V}{0} = \infty
+\end{equation}
+
+Infinite acceleration is physically impossible and would damage motor gears. To solve this, we implement the \textbf{Linear Segment with Parabolic Blends (LSPB)} \cite{sciavicco2012}, which bounds acceleration to a finite value $\ddot{q}_c$. The motion is divided into three phases:
+
+\textbf{Phase 1 - Acceleration} ($0 \leq t \leq t_c$):
+\begin{align}
+q(t) &= q_i + \frac{1}{2}\ddot{q}_c \cdot t^2 \\
+\dot{q}(t) &= \ddot{q}_c \cdot t
+\end{align}
+
+\textbf{Phase 2 - Cruise} ($t_c < t \leq t_f - t_c$):
+\begin{align}
+q(t) &= q_i + \ddot{q}_c \cdot t_c \cdot (t - \frac{t_c}{2}) \\
+\dot{q}(t) &= \dot{q}_c \quad \text{(constant velocity)}
+\end{align}
+
+\textbf{Phase 3 - Deceleration} ($t_f - t_c < t \leq t_f$):
+\begin{align}
+q(t) &= q_f - \frac{1}{2}\ddot{q}_c \cdot (t_f - t)^2 \\
+\dot{q}(t) &= \ddot{q}_c \cdot (t_f - t)
+\end{align}
+
+where $t_c$ is the blend time, $\ddot{q}_c$ is the cruise acceleration, and $\dot{q}_c$ is the cruise velocity.
+
+\textbf{Trapezoidal vs Parabolic Blend:} These terms are related but differ in perspective. Trapezoidal profile is \textit{velocity-based} (acceleration $\rightarrow$ cruise $\rightarrow$ deceleration), while parabolic blend is \textit{position-based} (linear segments with parabolic blends at transitions).
+
+\textbf{Limitation:} Jerk ($\dddot{q}$) is infinite at phase transitions. Alternative methods exist:
+\begin{itemize}
+\item \textbf{Cubic polynomial} (3rd order): Smoother, but no constant velocity phase. Requires 4 boundary conditions (position + velocity at both ends).
+\item \textbf{Quintic polynomial} (5th order): Finite jerk, smoothest motion. Requires 6 boundary conditions (position + velocity + acceleration at both ends).
+\end{itemize}
+Trapezoidal remains preferred for industrial applications due to its simplicity and predictable acceleration limits.
+
+\subsection{Pseudo Algorithms}
+
+\begin{algorithm}[!t]
+\caption{RRT Path Planning}\label{alg:rrt}
+\begin{algorithmic}[1]
+\small
+\Require Start config $q_{start}$, Goal frame $T_{goal}$, Held object $O$
+\Ensure Collision-free trajectory $\tau$
+\State $IK_{sols} \gets$ SweepJ1($T_{goal}$, $n=64$) \Comment{J1 sweep}
+\State $GoalRegion \gets$ OMPL.GoalSampleable($IK_{sols}$)
+\State $Space \gets$ RealVector(6), bounds $[-\pi, \pi]$
+\State $Validator \gets$ StateValidator($O$) \Comment{MuJoCo}
+\If{$O \neq$ None}
+    \State $Offset \gets$ ComputeGraspOffset($O$)
+    \State Validator.SetHeldObject($O$, $Offset$)
+\EndIf
+\State $Planner \gets$ RRT($Space$, $Validator$)
+\State $Path \gets$ Planner.Solve($q_{start}$, $GoalRegion$, $t=15s$)
+\State $\tau \gets$ ApplyLSPB($Path$, $dt=0.002$)
+\State \Return $\tau$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[!t]
+\caption{P2P Waypoint Execution}\label{alg:p2p}
+\begin{algorithmic}[1]
+\small
+\Require Object name $obj$, Robot state
+\Ensure Executed trajectory $\tau$
+\State $Waypoints \gets$ LoadConfig($obj$) \Comment{config.yaml}
+\State $close_{idx} \gets$ Config.gripper\_close\_after
+\State $open_{idx} \gets$ Config.gripper\_open\_after
+\State $q_{curr} \gets$ Robot.GetCurrentQ()
+\For{$i = 0$ to $|Waypoints| - 1$}
+    \State $q_{target} \gets Waypoints[i]$
+    \State $\tau_i \gets$ LSPB($q_{curr}$, $q_{target}$, $t=500ms$)
+    \State Execute($\tau_i$)
+    \State $q_{curr} \gets q_{target}$
+    \If{$i = close_{idx}$}
+        \State Gripper.Close()
+    \ElsIf{$i = open_{idx}$}
+        \State Gripper.Open()
+    \EndIf
+\EndFor
+\State \Return $\tau$
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{Key Differences:}
+\begin{itemize}
+\item \textbf{Planning:} RRT samples C-space randomly with 15s timeout; P2P uses pre-recorded waypoints instantly.
+\item \textbf{Collision:} RRT checks at resolution 0.005 rad; P2P assumes safe paths.
+\item \textbf{IK:} RRT uses J1 sweep (64 samples) for goal region \cite{ompl_goal_region}; P2P stores joint configs directly.
+\item \textbf{Repeatability:} P2P is identical every run; RRT varies due to random sampling.
+\end{itemize}
+
+%===================================================================================================
+\section{Results and Discussion}
+
+\subsection{Joint Position Trajectories}
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\columnwidth]{box_position.pdf}
+    \caption{Box - Joint position trajectories (6 DOF). RRT (blue) shows exploratory behavior; P2P (red dashed) follows direct paths.}
+    \label{fig:box_position}
+\end{figure}
+
+Figure~\ref{fig:box_position} shows the joint position comparison for the box manipulation task. Each subplot represents one of the six UR5 joints. RRT trajectories (blue solid) exhibit more exploratory paths due to random sampling in C-space, while P2P trajectories (red dashed) follow direct, predetermined routes. Similar patterns were observed for the cylinder (Figure~\ref{fig:cylinder_position}) and T-block objects, with RRT consistently producing longer trajectories due to its sampling-based nature.
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\columnwidth]{cylinder_position.pdf}
+    \caption{Cylinder - Joint position trajectories. RRT requires more waypoints due to complex obstacle avoidance.}
+    \label{fig:cylinder_position}
+\end{figure}
+
+\subsection{Velocity Profiles}
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\columnwidth]{box_velocity.pdf}
+    \caption{Box - Joint velocity profiles by DOF. Both RRT and P2P show trapezoidal shape with visible spikes at segment boundaries.}
+    \label{fig:box_velocity}
+\end{figure}
+
+Figure~\ref{fig:box_velocity} presents the joint velocity profiles for the box task. The expected trapezoidal shape (ramp-up, constant, ramp-down) is visible in both methods.
+
+\textbf{Velocity Spikes Analysis:} Sharp velocity spikes are observed at segment transition points. These arise from three sources:
+\begin{enumerate}
+\item \textbf{Zero-velocity boundary conditions:} Each LSPB segment forces $\dot{q}=0$ at start and end, creating discontinuous jumps when segments connect.
+\item \textbf{Numerical differentiation:} Velocity is computed as $\dot{q} \approx \Delta q / \Delta t$ using \texttt{np.diff()}. Small position steps amplify to large velocity values.
+\item \textbf{Multi-segment concatenation:} The \texttt{generate\_via\_point\_trajectory()} function concatenates independent LSPB profiles, causing velocity resets at each waypoint.
+\end{enumerate}
+
+\subsection{Acceleration Profiles}
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\columnwidth]{box_acceleration.pdf}
+    \caption{Box - Joint acceleration profiles by DOF. Step pattern confirms LSPB implementation. Large spikes indicate infinite jerk at phase transitions.}
+    \label{fig:box_acceleration}
+\end{figure}
+
+Figure~\ref{fig:box_acceleration} displays the acceleration profiles. The characteristic step pattern of LSPB is evident: constant positive acceleration (Phase 1), zero acceleration during cruise (Phase 2), and constant negative acceleration (Phase 3).
+
+\textbf{Acceleration Spikes Analysis:} The prominent spikes represent \textbf{infinite jerk}---a fundamental limitation of trapezoidal profiles. Consider the phase transition at $t = t_c$ (end of acceleration phase):
+
+Before transition ($t < t_c$): $\ddot{q} = \ddot{q}_c$ (constant acceleration)
+
+After transition ($t > t_c$): $\ddot{q} = 0$ (cruise phase, no acceleration)
+
+Computing jerk (rate of change of acceleration):
+\begin{equation}
+\dddot{q} = \frac{d\ddot{q}}{dt} = \frac{\Delta \ddot{q}}{\Delta t} = \frac{0 - \ddot{q}_c}{0} = -\frac{\ddot{q}_c}{0} = -\infty
+\end{equation}
+
+This infinite jerk occurs at all four phase transitions: $t=0$, $t=t_c$, $t=t_f-t_c$, and $t=t_f$. In practice, motor controllers have finite bandwidth that filters these spikes, but they can cause mechanical vibration and wear.
+
+\textbf{Solution:} Quintic (5th order) polynomial trajectories guarantee finite jerk by enforcing $\ddot{q}(t_i) = \ddot{q}(t_f) = 0$ as boundary conditions, ensuring smooth acceleration transitions.
+
+\subsection{Forward Kinematics (End-Effector Paths)}
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\columnwidth]{box_fk_comparison.pdf}
+    \caption{Box - End-effector position by Cartesian DOF (X, Y, Z). RRT path shows more oscillation; P2P follows smoother Cartesian trajectory.}
+    \label{fig:box_fk}
+\end{figure}
+
+Figure~\ref{fig:box_fk} displays the end-effector (TCP) position computed via forward kinematics using the roboticstoolbox \cite{corke2017robotics}. The three subplots show X, Y, and Z Cartesian coordinates over time, computed as:
+\begin{equation}
+T_{ee}(t) = FK(q(t)) = \prod_{i=1}^{6} A_i(q_i(t))
+\end{equation}
+where $A_i$ are the DH transformation matrices for the UR5.
+
+\textbf{FK Analysis:} Despite different joint-space trajectories, both methods reach the same pick and place positions. RRT's exploratory joint motion translates to more complex end-effector paths, while P2P's direct joint interpolation produces smoother Cartesian motion. This demonstrates that joint-space optimality does not guarantee Cartesian-space optimality.
+
+\subsection{T-block Analysis}
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\columnwidth]{t_block_position.pdf}
+    \caption{T-block - Joint position trajectories. Asymmetric object geometry leads to unique grasp configurations.}
+    \label{fig:tblock_position}
+\end{figure}
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\columnwidth]{t_block_fk_comparison.pdf}
+    \caption{T-block - End-effector FK comparison. Both methods successfully reach pick/place positions despite different joint-space paths.}
+    \label{fig:tblock_fk}
+\end{figure}
+
+Figure~\ref{fig:tblock_position} shows the T-block manipulation trajectories. The asymmetric geometry of the T-block requires more careful gripper alignment, resulting in slightly different joint configurations compared to symmetric objects.
+
+\subsection{Performance Metrics}
+
+\begin{table}[!t]
+\centering
+\small
+\caption{Trajectory Statistics Comparison}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Metric} & \textbf{Box} & \textbf{Cylinder} & \textbf{T-block} \\
+\midrule
+RRT Points & 8415 & 11422 & 9316 \\
+P2P Points & 7415 & 7314 & 6914 \\
+RRT Time (s) & 16.83 & 22.84 & 18.63 \\
+P2P Time (s) & 14.83 & 14.63 & 13.83 \\
+\bottomrule
+\end{tabular}
+\label{tab:stats}
+\end{table}
+
+Table~\ref{tab:stats} summarizes the trajectory statistics across all three objects.
+
+\textbf{Quantitative Analysis:}
+\begin{itemize}
+\item RRT requires 13-56\% more trajectory points due to exploratory sampling in C-space. The random sampling nature means RRT rarely finds the shortest path.
+\item Execution time is 13-56\% longer for RRT. However, this overhead provides collision safety---critical when the environment may contain unexpected obstacles.
+\item P2P is faster and perfectly repeatable, but completely blind to environmental changes. A single misplaced object would cause collision.
+\item The cylinder task shows the largest difference (56\% more points) because its placement location requires navigating around other objects, forcing RRT to explore more of the C-space.
+\end{itemize}
+
+\textbf{Dynamic Collision Benefit:} The held object collision checking proved essential. Without it, RRT would plan paths where the grasped object collides with the table during transport. By computing the grasp offset and treating the object as part of the kinematic chain, all generated paths are guaranteed collision-free for both the robot \textit{and} the held object.
+
+\textbf{Trade-off Summary:} P2P offers 13-56\% faster execution with zero planning overhead, but requires manual teaching and cannot adapt. RRT provides autonomous planning with collision safety, but at the cost of longer, non-optimal paths. For high-volume production with fixed layouts, P2P is optimal. For flexible automation or unknown environments, RRT is essential.
+
+
+
+%===================================================================================================
+\section{Conclusion}
+
+This study compared RRT and P2P trajectory generation for pick-and-place tasks. Key findings:
+
+\textbf{P2P Advantages:} Faster execution, perfect repeatability, no computational overhead, ideal for static industrial environments with known layouts.
+
+\textbf{RRT Advantages:} Automatic collision avoidance, adapts to unknown obstacles, dynamic collision modeling for held objects, essential for flexible automation.
+
+\textbf{Common Strength:} Both methods successfully utilize the trapezoidal velocity profile (LSPB) for smooth, bounded-acceleration motion.
+
+\textbf{Future Improvements:}
+
+\textit{Path Planning Enhancements:}
+\begin{itemize}
+\item Implement RRT* for asymptotically optimal paths
+\item Use bidirectional RRT for faster convergence
+\item Develop hybrid approach: P2P with RRT fallback for obstacle avoidance
+\end{itemize}
+
+\textit{Trajectory Profile Alternatives:}
+
+The current trapezoidal profile has a fundamental limitation: \textbf{infinite jerk} at phase transitions. This occurs because acceleration changes instantaneously from $\ddot{q}_c$ to 0 (or vice versa). While motor controllers filter these spikes, they can cause mechanical vibration and wear over time.
+
+Alternative polynomial-based trajectories can address this issue:
+
+\textbf{Cubic Polynomial (3rd Order):} Position is described by $q(t) = a_0 + a_1 t + a_2 t^2 + a_3 t^3$. This requires 4 boundary conditions (position and velocity at both endpoints). Smoother than trapezoidal, but lacks a constant velocity phase, making it less time-optimal.
+
+\textbf{Quintic Polynomial (5th Order):} Adds acceleration constraints: $\ddot{q}(t_i) = \ddot{q}(t_f) = 0$. This guarantees \textbf{finite jerk} throughout the motion, providing the smoothest trajectory. Requires 6 boundary conditions (position, velocity, and acceleration at both ends) and more computational effort.
+
+\textit{Via-Point Blending:}
+
+Currently, multi-segment trajectories force the robot to stop at each intermediate waypoint ($\dot{q} = 0$). An improvement would be \textbf{segment blending}: starting the next segment before the current one ends, using velocity superposition. This allows smooth passage through via-points without stopping, though the exact crossing time becomes approximate \cite{sciavicco2012}.
+
+\textbf{Supplementary Materials:} Video demonstrations are available online:
+\begin{itemize}
+\item P2P Data Collection: \url{https://youtu.be/ljMGeYzblWg}
+\item P2P Execution: \url{https://youtu.be/nj_jDb7eGxQ}
+\item RRT Execution: \url{https://youtu.be/tpHh2QvFxpo}
+\end{itemize}
+
+%===================================================================================================
+\printbibliography[title={References}]
+
+\end{document}

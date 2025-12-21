@@ -10,6 +10,14 @@ from .trajectory_plotting import (
     plot_trajectory_derivatives,
     plot_all_joints_derivatives,
     plot_combined_trajectory,
+    plot_comparison_overlay,
+    plot_comparison_sidebyside,
+    plot_fk_comparison,
+    plot_forward_kinematics,
+    plot_rrt_vs_p2p_position,
+    plot_rrt_vs_p2p_velocity,
+    plot_rrt_vs_p2p_acceleration,
+    plot_rrt_vs_p2p_combined,
 )
 
 from .manipulation import (

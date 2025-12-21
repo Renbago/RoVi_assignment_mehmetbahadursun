@@ -13,7 +13,7 @@ __pycache__/
 #Outputs
 gifs/
 planning_logs/
-outputs/
+trajectory_data/
 
 # Latex
 ROVI_Latex.zip

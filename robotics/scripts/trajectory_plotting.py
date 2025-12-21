@@ -272,7 +272,7 @@ def plot_combined_trajectory(trajectories_dict: dict,
     labels = [f'J{i+1}' for i in range(6)]
 
     for col, (obj_name, trajectory) in enumerate(trajectories_dict.items()):
-        if not trajectory:
+        if trajectory is None or len(trajectory) == 0:
             continue
 
         trajectory = np.array(trajectory)
@@ -676,6 +676,266 @@ def plot_fk_comparison(rrt_traj: List[np.ndarray],
     axs[2].set_xlabel('Time [s]')
 
     plt.tight_layout()
+
+    if save_path:
+        final_path = _get_output_path(save_path)
+        plt.savefig(final_path, dpi=150, bbox_inches='tight')
+        print(f"Saved: {final_path}")
+
+    if show:
+        plt.show()
+
+    return fig
+
+
+# =============================================================================
+# REPORT-STYLE PLOTS (Instructor format: 6x1 subplots per joint)
+# =============================================================================
+
+def plot_rrt_vs_p2p_position(rrt_traj: np.ndarray,
+                              p2p_traj: np.ndarray,
+                              dt: float = 0.002,
+                              title: str = "Joint Position Trajectory",
+                              save_path: Optional[str] = None,
+                              show: bool = True):
+    """
+    Plot RRT vs P2P joint POSITION comparison (instructor format: 6x1).
+
+    Matches the format from reference_files/Plotting_example.py:
+    - 6 subplots (one per joint)
+    - RRT in blue solid, P2P in red dashed
+    - Grid and legend on each subplot
+
+    Args:
+        rrt_traj: RRT trajectory array (n_points, 6)
+        p2p_traj: P2P trajectory array (n_points, 6)
+        dt: Time step (default 0.002s = 2ms)
+        title: Plot title
+        save_path: Path to save figure (PDF recommended for report)
+        show: Whether to display plot
+    """
+    rrt_traj = np.array(rrt_traj)
+    p2p_traj = np.array(p2p_traj)
+
+    rrt_times = np.arange(len(rrt_traj)) * dt
+    p2p_times = np.arange(len(p2p_traj)) * dt
+
+    fig, ax = plt.subplots(6, 1, figsize=(8, 10))  # Tall vertical figure for report
+
+    for i in range(6):
+        ax[i].plot(rrt_times, rrt_traj[:, i], color='b', linewidth=1.2, label='RRT')
+        ax[i].plot(p2p_times, p2p_traj[:, i], color='r', linestyle='--', linewidth=1.2, label='P2P')
+        ax[i].set_ylabel(f'J{i+1} [rad]', fontsize=10)
+        ax[i].set_title(f'Joint {i+1}', fontsize=11, pad=5)
+        ax[i].grid(True, linestyle=':', alpha=0.6)
+        ax[i].legend(loc='upper right', fontsize=8)
+
+    ax[5].set_xlabel('Time [s]', fontsize=10)
+    plt.suptitle(title, fontsize=14, fontweight='bold', y=0.98)
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+
+    if save_path:
+        final_path = _get_output_path(save_path)
+        # Force PDF if not specified, or use specified extension
+        if not final_path.endswith('.pdf') and not final_path.endswith('.png'):
+             final_path += '.pdf'
+        plt.savefig(final_path, format='pdf' if final_path.endswith('.pdf') else 'png', 
+                    bbox_inches='tight')
+        print(f"Saved: {final_path}")
+
+    if show:
+        plt.show()
+
+    return fig
+
+
+def plot_rrt_vs_p2p_velocity(rrt_traj: np.ndarray,
+                              p2p_traj: np.ndarray,
+                              dt: float = 0.002,
+                              title: str = "Joint Velocity Profile",
+                              save_path: Optional[str] = None,
+                              show: bool = True):
+    """
+    Plot RRT vs P2P joint VELOCITY comparison (instructor format: 6x1).
+
+    Args:
+        rrt_traj: RRT trajectory array (n_points, 6)
+        p2p_traj: P2P trajectory array (n_points, 6)
+        dt: Time step
+        title: Plot title
+        save_path: Path to save
+        show: Whether to display
+    """
+    rrt_traj = np.array(rrt_traj)
+    p2p_traj = np.array(p2p_traj)
+
+    rrt_times = np.arange(len(rrt_traj)) * dt
+    p2p_times = np.arange(len(p2p_traj)) * dt
+
+    # Compute velocities
+    rrt_vel = np.diff(rrt_traj, axis=0) / dt
+    p2p_vel = np.diff(p2p_traj, axis=0) / dt
+
+    fig, ax = plt.subplots(6, 1, figsize=(8, 10))
+
+    for i in range(6):
+        ax[i].plot(rrt_times[:-1], rrt_vel[:, i], color='b', linewidth=1.2, label='RRT')
+        ax[i].plot(p2p_times[:-1], p2p_vel[:, i], color='r', linestyle='--', linewidth=1.2, label='P2P')
+        ax[i].set_ylabel(f'J{i+1} [rad/s]', fontsize=10)
+        ax[i].set_title(f'Joint {i+1}', fontsize=11, pad=5)
+        ax[i].grid(True, linestyle=':', alpha=0.6)
+        ax[i].legend(loc='upper right', fontsize=8)
+
+    ax[5].set_xlabel('Time [s]', fontsize=10)
+    plt.suptitle(title, fontsize=14, fontweight='bold', y=0.98)
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+
+    if save_path:
+        final_path = _get_output_path(save_path)
+        if not final_path.endswith('.pdf') and not final_path.endswith('.png'):
+             final_path += '.pdf'
+        plt.savefig(final_path, format='pdf' if final_path.endswith('.pdf') else 'png',
+                    bbox_inches='tight')
+        print(f"Saved: {final_path}")
+
+    if show:
+        plt.show()
+
+    return fig
+
+
+def plot_rrt_vs_p2p_acceleration(rrt_traj: np.ndarray,
+                                  p2p_traj: np.ndarray,
+                                  dt: float = 0.002,
+                                  title: str = "Joint Acceleration Profile",
+                                  save_path: Optional[str] = None,
+                                  show: bool = True):
+    """
+    Plot RRT vs P2P joint ACCELERATION comparison (instructor format: 6x1).
+
+    Args:
+        rrt_traj: RRT trajectory array (n_points, 6)
+        p2p_traj: P2P trajectory array (n_points, 6)
+        dt: Time step
+        title: Plot title
+        save_path: Path to save
+        show: Whether to display
+    """
+    rrt_traj = np.array(rrt_traj)
+    p2p_traj = np.array(p2p_traj)
+
+    rrt_times = np.arange(len(rrt_traj)) * dt
+    p2p_times = np.arange(len(p2p_traj)) * dt
+
+    # Compute accelerations (second derivative)
+    rrt_vel = np.diff(rrt_traj, axis=0) / dt
+    rrt_acc = np.diff(rrt_vel, axis=0) / dt
+
+    p2p_vel = np.diff(p2p_traj, axis=0) / dt
+    p2p_acc = np.diff(p2p_vel, axis=0) / dt
+
+    fig, ax = plt.subplots(6, 1, figsize=(10, 12))
+
+    for i in range(6):
+        ax[i].plot(rrt_times[:-2], rrt_acc[:, i], 'b-', linewidth=1.5, label='RRT')
+        ax[i].plot(p2p_times[:-2], p2p_acc[:, i], 'r--', linewidth=1.5, label='P2P')
+        ax[i].set_ylabel(f'Joint {i+1} [rad/s²]')
+        ax[i].set_title(f'Joint {i+1}')
+        ax[i].grid(True, alpha=0.5)
+        ax[i].legend(loc='upper right')
+
+    ax[5].set_xlabel('Time [s]')
+    plt.suptitle(title, fontsize=14, fontweight='bold')
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+
+    if save_path:
+        final_path = _get_output_path(save_path)
+        plt.savefig(final_path, dpi=150, bbox_inches='tight')
+        print(f"Saved: {final_path}")
+
+    if show:
+        plt.show()
+
+    return fig
+
+
+def plot_rrt_vs_p2p_combined(rrt_traj: np.ndarray,
+                              p2p_traj: np.ndarray,
+                              dt: float = 0.002,
+                              obj_name: str = "",
+                              save_path: Optional[str] = None,
+                              show: bool = True):
+    """
+    Combined plot: Position + Velocity + Acceleration in 2x3 grid.
+    Compact view suitable for multi-object reports.
+
+    Layout:
+    - Row 1: Position (J1-J3), Position (J4-J6)
+    - Row 2: Velocity (J1-J3), Velocity (J4-J6)
+    - Row 3: Acceleration (J1-J3), Acceleration (J4-J6)
+
+    Actually simpler: 3 rows × 2 columns (Pos/Vel/Acc × RRT/P2P)
+
+    Args:
+        rrt_traj: RRT trajectory array
+        p2p_traj: P2P trajectory array
+        dt: Time step
+        obj_name: Object name for title
+        save_path: Path to save
+        show: Whether to display
+    """
+    rrt_traj = np.array(rrt_traj)
+    p2p_traj = np.array(p2p_traj)
+
+    rrt_times = np.arange(len(rrt_traj)) * dt
+    p2p_times = np.arange(len(p2p_traj)) * dt
+
+    # Compute derivatives
+    rrt_vel = np.diff(rrt_traj, axis=0) / dt
+    rrt_acc = np.diff(rrt_vel, axis=0) / dt
+
+    p2p_vel = np.diff(p2p_traj, axis=0) / dt
+    p2p_acc = np.diff(p2p_vel, axis=0) / dt
+
+    colors = plt.cm.viridis(np.linspace(0, 1, 6))
+
+    fig, axs = plt.subplots(3, 2, figsize=(14, 10))
+    title = f'{obj_name.upper()} - RRT vs P2P Comparison' if obj_name else 'RRT vs P2P Comparison'
+    fig.suptitle(title, fontsize=14, fontweight='bold')
+
+    # Column 0: RRT, Column 1: P2P
+    axs[0, 0].set_title('RRT', fontsize=12, fontweight='bold')
+    axs[0, 1].set_title('P2P', fontsize=12, fontweight='bold')
+
+    for j in range(6):
+        # Position
+        axs[0, 0].plot(rrt_times, rrt_traj[:, j], color=colors[j],
+                       linewidth=1, label=f'J{j+1}')
+        axs[0, 1].plot(p2p_times, p2p_traj[:, j], color=colors[j], linewidth=1)
+
+        # Velocity
+        axs[1, 0].plot(rrt_times[:-1], rrt_vel[:, j], color=colors[j], linewidth=1)
+        axs[1, 1].plot(p2p_times[:-1], p2p_vel[:, j], color=colors[j], linewidth=1)
+
+        # Acceleration
+        axs[2, 0].plot(rrt_times[:-2], rrt_acc[:, j], color=colors[j], linewidth=1)
+        axs[2, 1].plot(p2p_times[:-2], p2p_acc[:, j], color=colors[j], linewidth=1)
+
+    # Y-axis labels
+    axs[0, 0].set_ylabel('Position [rad]')
+    axs[1, 0].set_ylabel('Velocity [rad/s]')
+    axs[2, 0].set_ylabel('Acceleration [rad/s²]')
+
+    # X-axis labels
+    axs[2, 0].set_xlabel('Time [s]')
+    axs[2, 1].set_xlabel('Time [s]')
+
+    # Grid and legend
+    for ax in axs.flat:
+        ax.grid(True, alpha=0.3)
+    axs[0, 0].legend(loc='upper right', ncol=3, fontsize=8)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
 
     if save_path:
         final_path = _get_output_path(save_path)
