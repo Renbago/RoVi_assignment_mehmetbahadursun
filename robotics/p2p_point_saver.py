@@ -18,6 +18,7 @@ import numpy as np
 from robot import UR5robot
 from utils.mujoco_utils import get_mjobj_frame
 from utils import load_config, get_objects_to_move, get_model_path
+from scripts.manipulation import _init_grasp_params, _compute_grasp_frame
 import spatialmath as sm
 
 
@@ -43,7 +44,8 @@ def main():
 
     print(f"\nRecording waypoints for: {obj_name}")
     print("Drag the robot to desired positions and use 'Copy state' and copy those at .txt folder")
-    print("\n Then paste those values to config.yaml under p2p_waypoints.\n")
+    print("pkill -9 -f python")
+    print("\nThen paste those values to config.yaml under p2p_frames.\n")
 
     m = mujoco.MjModel.from_xml_path(model_path)
     d = mujoco.MjData(m)
@@ -57,10 +59,11 @@ def main():
 
     mujoco.mj_forward(m, d)
 
-    # Start at grasp position for selected object
+    # Start at grasp position for selected object -
     robot = UR5robot(d, m)
     obj_frame = get_mjobj_frame(model=m, data=d, obj_name=obj_name)
-    grasp_frame = obj_frame * sm.SE3.Rx(-np.pi)
+    params = _init_grasp_params(obj_name)
+    grasp_frame = _compute_grasp_frame(obj_frame, params)
     q_grasp = robot.robot_ur5.ik_LM(Tep=grasp_frame, q0=UR5robot.Q_HOME)[0]
 
     # Start at grasp position

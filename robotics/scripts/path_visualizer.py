@@ -94,5 +94,10 @@ def visualize_planned_path(viewer, robot, trajectory, show_spheres=True, show_li
         
         # Draw end point (red)
         draw_path_in_viewer(viewer, [ee_positions[-1]], color=(1, 0, 0, 1), size=0.015)
-    
-    print(f"Visualized path with {len(ee_positions)} waypoints")
+
+    # Log joint configurations for P2P extraction
+    print(f"RRT PATH WAYPOINTS ({len(trajectory)} points)")
+    for i, q in enumerate(trajectory):
+        q_str = ", ".join([f"{v}" for v in q])
+        print(f"      - type: \"joint\"")
+        print(f"        q: [{q_str}]")

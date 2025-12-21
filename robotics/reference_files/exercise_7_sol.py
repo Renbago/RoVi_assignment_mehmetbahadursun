@@ -56,7 +56,12 @@ def rrt_plan(d, m, start_q, goal_q):
     solved = ss.solve(10.0)
     
     if solved:
-        # ss.simplifySolution() # OMPL's inbuilt Path pruning algorithm
+        """
+        I've did not removed the ss.simplifySolution() line, 
+        I am using for p2p point collection from rrt by simplfy that path
+        """
+        
+        ss.simplifySolution() # OMPL's inbuilt Path pruning algorithm
         # Get the solution path
         path = ss.getSolutionPath()
         print("Found a Solution!")

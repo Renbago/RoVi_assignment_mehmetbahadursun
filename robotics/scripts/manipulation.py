@@ -30,15 +30,33 @@ from utils.mujoco_utils import (
 )
 
 
-# Timing settings
-DESCENT_TIME = 500
-LIFT_TIME = 500
-GRIPPER_TIME = 300
-GRIPPER_RELEASE_TIME = 800
-PATH_TIME = 300
-PLACE_PATH_TIME = 600
+class UR5TimingSettings:
+    """UR5 timing settings from config.yaml -> timing section."""
 
-# Gripper settings
+    def __init__(self):
+        config = load_config()
+        timing = config.get('timing', {})
+
+        # Gripper timing
+        gripper = timing.get('gripper', {})
+        self.gripper_time = gripper.get('close_time', 300)
+        self.gripper_release_time = gripper.get('release_time', 800)
+
+        # RRT/PRM timing
+        rrt = timing.get('rrt', {})
+        self.descent_time = rrt.get('descent_time', 500)
+        self.lift_time = rrt.get('lift_time', 500)
+        self.path_time = rrt.get('path_time', 300)
+        self.place_path_time = rrt.get('place_path_time', 600)
+
+        # P2P timing
+        p2p = timing.get('p2p', {})
+        self.p2p_segment_time = p2p.get('segment_time', 500)
+
+
+_ur5_timing = UR5TimingSettings()
+
+# Gripper settings (hardware constants)
 GRIPPER_OPEN = 0
 GRIPPER_CLOSE = 255
 
@@ -199,7 +217,7 @@ def pick_object(robot, obj_name, planner_type, d, m, viewer, execute_fn,
         gripper_value=GRIPPER_CLOSE,
         obj_name=obj_name,
         action_verb="grasp",
-        path_t=PATH_TIME,
+        path_t=_ur5_timing.path_time,
         log_list=log_list,
         boundary_list=boundary_list,
         lift_frame=lift_frame
@@ -274,8 +292,8 @@ def place_object(robot, obj_name, planner_type, d, m, viewer, execute_fn,
         gripper_value=GRIPPER_OPEN,
         obj_name=obj_name,
         action_verb="release",
-        path_t=PLACE_PATH_TIME,
-        gripper_t=GRIPPER_RELEASE_TIME,
+        path_t=_ur5_timing.place_path_time,
+        gripper_t=_ur5_timing.gripper_release_time,
         log_list=log_list,
         boundary_list=boundary_list,
         skip_lift=True
@@ -286,14 +304,16 @@ def return_to_home(robot, planner_type, d, m, viewer, execute_fn,
                    log_list=None, boundary_list=None, held_object=None):
     """
     Return robot to home position after placing object.
+
     The purpose of this robot couldnt go the second object after replace this its always
     failing idk so i added this function after i can able to solve the IK collision problem
-    # TODO: If planning goes well remove this function
+    # TODO: Ask TA with outputs might be we remove this function usage style
     """
     logger = ProjectLogger.get_instance()
 
     robot.clear_trajectories(viewer)
 
+    # Use RRT for return_to_home (even in P2P mode for collision-free path)
     logger.info("RETURNING TO HOME POSITION")
     if held_object:
         logger.info(f"  (Still holding: {held_object})")
@@ -301,16 +321,19 @@ def return_to_home(robot, planner_type, d, m, viewer, execute_fn,
     start_q = robot.get_current_q()
     goal_q = Q_HOME
 
+    # Always use RRT for return_to_home - P2P waypoints are object-specific
+    actual_planner = "rrt" if planner_type.lower() == "p2p" else planner_type
+
     planner = PathPlanner()
     path = planner.plan(
         d=d, m=m, start_q=start_q, goal_q=goal_q,
-        planner_type=planner_type, robot=robot, held_object=held_object
+        planner_type=actual_planner, robot=robot, held_object=held_object
     )
 
     if path:
         robot.add_planned_path(path)
         robot.visualize_trajectory(viewer, use_queue=False)
-        robot.move_j_via(points=path, t=PATH_TIME)
+        robot.move_j_via(points=path, t=_ur5_timing.path_time)
         execute_movement_wrapper(robot, d, m, viewer, execute_fn, log_list, boundary_list)
         logger.info("Successfully returned to home position")
         return True
@@ -427,13 +450,13 @@ def _actuate_gripper(robot, d, m, viewer, execute_fn,
         obj_name: Object name for offset computation
         log_list: Optional trajectory log
         boundary_list: Optional boundary list
-        gripper_t: Gripper actuation time (default GRIPPER_TIME)
+        gripper_t: Gripper actuation time (default _ur5_timing.gripper_time)
     """
     logger = ProjectLogger.get_instance()
 
     gripper_value = GRIPPER_CLOSE if close else GRIPPER_OPEN
     action = "grasp" if close else "release"
-    actual_t = gripper_t if gripper_t is not None else GRIPPER_TIME
+    actual_t = gripper_t if gripper_t is not None else _ur5_timing.gripper_time
 
     logger.log_manipulation_phase(action, obj_name)
     robot.set_gripper(gripper_value, t=actual_t)
@@ -479,7 +502,7 @@ def _plan_and_execute_descent(robot, d, m, viewer, execute_fn,
     )
 
     if descent_path:
-        _execute_path_via(robot, descent_path, DESCENT_TIME,
+        _execute_path_via(robot, descent_path, _ur5_timing.descent_time,
                          d, m, viewer, execute_fn, log_list, boundary_list)
         logger.info(f"Descent completed with {len(descent_path)} waypoints")
         return True
@@ -522,16 +545,16 @@ def _plan_and_execute_lift(robot, d, m, viewer, execute_fn,
     )
 
     if lift_path:
-        _execute_path_via(robot, lift_path, LIFT_TIME,
+        _execute_path_via(robot, lift_path, _ur5_timing.lift_time,
                          d, m, viewer, execute_fn, log_list, boundary_list)
         logger.info(f"Lift completed with {len(lift_path)} waypoints")
         return True
 
     # Fallback to simple interpolation
-    logger.warning("Lift RRT failed - using simple interpolation")
+    logger.warning("Lift RRT failed (expected: FK numerical error because object touch with table while lifting) - using simple interpolation")
     ik_result = robot.robot_ur5.ik_LM(Tep=lift_frame, q0=q_current)
     q_lift = ik_result[0]
-    robot.move_j(start_q=q_current, end_q=q_lift, t=LIFT_TIME)
+    robot.move_j(start_q=q_current, end_q=q_lift, t=_ur5_timing.lift_time)
     execute_movement_wrapper(robot, d, m, viewer, execute_fn, log_list, boundary_list)
     return True
 
@@ -577,10 +600,133 @@ def _plan_and_execute_retreat(robot, d, m, viewer, execute_fn,
     )
 
     if retreat_path:
-        _execute_path_via(robot, retreat_path, DESCENT_TIME,
+        _execute_path_via(robot, retreat_path, _ur5_timing.descent_time,
                          d, m, viewer, execute_fn, log_list, boundary_list)
         logger.info("Retreat completed - ready for RRT to home")
         return True
 
     logger.warning("Retreat path failed - home RRT might fail!")
     return False
+
+# Pre-recorded joint waypoints from config.yaml
+# if needed cartesian frame support available in scripts/ik_p2p.py 
+
+def execute_p2p_sequence(robot, obj_name: str, d, m, viewer, execute_fn,
+                          log_list: List = None, boundary_list: List = None) -> bool:
+    """
+    Execute P2P sequence using pre-defined joint waypoints from config.yaml.
+
+    Reads p2p_frames/{obj_name}/frames from config and executes with trapezoidal
+    interpolation. Gripper actions triggered at specified waypoint indices.
+
+    Args:
+        robot: Robot instance
+        obj_name: Object name (box, cylinder, t_block)
+        d, m: MuJoCo data/model
+        viewer: MuJoCo viewer
+        execute_fn: Movement execution function
+        log_list, boundary_list: Optional logging
+
+    Returns:
+        True if successful, False otherwise
+    """
+    logger = ProjectLogger.get_instance()
+    config = load_config()
+
+    # Get p2p_frames config
+    p2p_frames_config = config.get('p2p_frames', {}).get(obj_name, {})
+    frame_defs = p2p_frames_config.get('frames', [])
+
+    if not frame_defs:
+        logger.error(f"[P2P] No p2p_frames defined for {obj_name} in config.yaml!")
+        return False
+
+    return _execute_p2p_frames(
+        robot, obj_name, d, m, viewer, execute_fn,
+        frame_defs, p2p_frames_config,
+        log_list, boundary_list
+    )
+
+
+def _execute_p2p_frames(robot, obj_name: str, d, m, viewer, execute_fn,
+                         frame_defs: List, p2p_config: Dict,
+                         log_list: List = None, boundary_list: List = None) -> bool:
+    """
+    Execute P2P with pre-defined joint waypoints from config.yaml.
+
+    Args:
+        robot: Robot instance
+        obj_name: Object name
+        d, m: MuJoCo data/model
+        viewer: MuJoCo viewer
+        execute_fn: Movement execution function
+        frame_defs: List of frame definitions from config (type: "joint")
+        p2p_config: P2P config with gripper indices
+        log_list, boundary_list: Optional logging
+
+    Returns:
+        True if successful
+    """
+    logger = ProjectLogger.get_instance()
+
+    gripper_close_after = p2p_config.get('gripper_close_after')
+    gripper_open_after = p2p_config.get('gripper_open_after')
+
+    logger.info(f"[P2P] Executing sequence for {obj_name}")
+    logger.info(f"[P2P] {len(frame_defs)} frames, "
+                f"gripper_close_after={gripper_close_after}, "
+                f"gripper_open_after={gripper_open_after}")
+
+    # Extract joint waypoints directly from config (NO IK!)
+    waypoints = []
+    for i, frame in enumerate(frame_defs):
+        frame_type = frame.get('type')
+        if frame_type != 'joint':
+            logger.error(f"[P2P] Frame {i}: Only 'joint' type supported, got '{frame_type}'")
+            logger.error("[P2P] For Cartesian frames, use scripts/ik_p2p.py")
+            return False
+        waypoints.append(np.array(frame['q']))
+
+    logger.info(f"[P2P] Loaded {len(waypoints)} joint waypoints from config")
+
+    # Log J1 values for debugging
+    j1_values = [np.degrees(wp[0]) for wp in waypoints]
+    logger.debug(f"[P2P] J1 sequence (deg): {[f'{j:.1f}' for j in j1_values]}")
+
+    logger.log_manipulation_phase("p2p_sequence", obj_name, {
+        "frames": len(frame_defs),
+        "waypoints": len(waypoints),
+        "gripper_close_after": gripper_close_after,
+        "gripper_open_after": gripper_open_after
+    })
+
+    # Execute waypoints with trapezoidal interpolation
+    q_current = robot.get_current_q()
+
+    for i, waypoint in enumerate(waypoints):
+        logger.debug(f"[P2P] Moving to waypoint {i}")
+        robot.move_j(start_q=q_current, end_q=waypoint, t=_ur5_timing.p2p_segment_time)
+        execute_movement_wrapper(robot, d, m, viewer, execute_fn, log_list, boundary_list)
+        q_current = waypoint
+
+        # Gripper close after specified waypoint
+        if gripper_close_after is not None and i == gripper_close_after:
+            logger.info(f"[P2P] Gripper CLOSE after waypoint {i}")
+            _actuate_gripper(robot, d, m, viewer, execute_fn,
+                             close=True, obj_name=obj_name,
+                             log_list=log_list, boundary_list=boundary_list)
+
+        # Gripper open after specified waypoint
+        if gripper_open_after is not None and i == gripper_open_after:
+            logger.info(f"[P2P] Gripper OPEN after waypoint {i}")
+            _actuate_gripper(robot, d, m, viewer, execute_fn,
+                             close=False, obj_name=obj_name,
+                             log_list=log_list, boundary_list=boundary_list,
+                             gripper_t=_ur5_timing.gripper_release_time)
+
+    # Retreat after placing (same as RRT mode)
+    _plan_and_execute_retreat(robot, d, m, viewer, execute_fn,
+                               obj_name, log_list, boundary_list)
+
+    logger.info(f"[P2P] Sequence completed for {obj_name}")
+    return True

@@ -1,3 +1,5 @@
+## Robotics
+
 #Folders
 example
 venv
@@ -9,3 +11,16 @@ __pycache__/
 
 #Outputs
 gifs/
+planning_logs/
+outputs/
+
+# Latex
+ROVI_Latex.zip
+ROVI_Latex_template/
+
+## Vision
+reference_files/
+Scenes/
+
+vision/results/
+vision/screenshoots/

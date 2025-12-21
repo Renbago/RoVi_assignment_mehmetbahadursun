@@ -328,6 +328,21 @@ def plan_with_goal_region(d, m, start_q: np.ndarray, target_frame,
 
     if solved and pdef.hasExactSolution():
         path = pdef.getSolutionPath()
+
+        # Check if P2P data collection mode is enabled
+        config = load_config()
+        p2p_data_collection = config.get('planner', {}).get('p2p', {}).get(
+            'data_collection_rrt_simplified', False
+        )
+
+        if p2p_data_collection:
+            # OMPL path simplification for P2P waypoint extraction
+            # Reference: https://ompl.kavrakilab.org/classompl_1_1geometric_1_1PathSimplifier.html
+            raw_count = path.getStateCount()
+            path_simplifier = og.PathSimplifier(si)
+            path_simplifier.simplifyMax(path)
+            logger.info(f"[P2P-DATA] Path simplified: {raw_count} -> {path.getStateCount()} states")
+
         logger.log_planning_result(True, path.length(),
                                    path.getStateCount(), "goal_region")
 
@@ -336,6 +351,17 @@ def plan_with_goal_region(d, m, start_q: np.ndarray, target_frame,
             state = path.getState(i)
             q = np.array([state[j] for j in range(NUM_JOINTS)])
             trajectory.append(q)
+
+        # Log waypoints for P2P data collection
+        if p2p_data_collection:
+            logger.info("[P2P-DATA] ========== SIMPLIFIED WAYPOINTS ==========")
+            logger.info("[P2P-DATA] Copy these to config.yaml -> p2p_frames:")
+            logger.info("[P2P-DATA] frames:")
+            for q in trajectory:
+                q_rounded = [round(v, 4) for v in q]
+                logger.info(f"[P2P-DATA]   - type: \"joint\"")
+                logger.info(f"[P2P-DATA]     q: {q_rounded}")
+            logger.info("[P2P-DATA] ============================================")
 
         logger.debug(f"Final J1: {np.degrees(trajectory[-1][0]):.1f} deg")
         return trajectory
