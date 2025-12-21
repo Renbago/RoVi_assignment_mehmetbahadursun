@@ -3,16 +3,24 @@ import numpy as np
 import mujoco as mj
 import open3d as o3d
 import struct
+from spatialmath import SE3, SO3
+import math
 
-def get_rgb(m, d, renderer):
-    renderer.update_scene(d, camera="cam1")
+def get_rgb(m:mj.MjModel,
+            d:mj.MjData,
+            renderer:mj.Renderer,
+            camera_name:str="cam1"):
+    renderer.update_scene(d, camera=camera_name)
     rgb_img = renderer.render()
     im = Image.fromarray(rgb_img)
     im.save("rgb_img.jpeg")
 
-def get_depth(m, d, renderer):
+def get_depth(m:mj.MjModel,
+              d:mj.MjData,
+              renderer:mj.Renderer,
+              camera_name:str="cam1"):
     # Update the scene with the specified camera
-    renderer.update_scene(d, camera="cam1")    
+    renderer.update_scene(d, camera=camera_name)
     renderer.enable_depth_rendering()
     depth_img = renderer.render()
     renderer.disable_depth_rendering()
@@ -24,7 +32,11 @@ def get_depth(m, d, renderer):
     im = Image.fromarray(depth_visual)
     im.save("depth_img.jpeg")
     
-def get_pointcloud(model, data, renderer, camera_name="cam1"):
+def get_pointcloud(model:mj.MjModel,
+                   data:mj.MjData,
+                   renderer:mj.Renderer,
+                   pcd_File:str="point_cloud.pcd",
+                   camera_name:str="cam1"):
     """Simplified point cloud generation from MuJoCo camera view"""
     # Get camera ID and verify
     cam_id = mj.mj_name2id(model, mj.mjtObj.mjOBJ_CAMERA, camera_name)
@@ -59,24 +71,17 @@ def get_pointcloud(model, data, renderer, camera_name="cam1"):
     
     # Create 3D points in camera space
     points_cam = np.stack((x * depth, 
-                          y * depth, 
-                          -depth), axis=-1)  # Z points into screen
-    # points_cam = points_cam.reshape(-1, 3)
-    # Transform to world space
-    points_world = (cam_rot @ points_cam.reshape(-1, 3).T).T + cam_pos
-    
-    # Filter out background points (where depth ≈ 1.0)
-    # valid_mask = (depth < 0.999).reshape(-1)
-    colors = rgb.reshape(-1, 3)#[valid_mask]
-    
-    # return points_world[valid_mask], colors
-    _save_pointcloud(points=points_world, colors=colors)
+                          -y * depth, 
+                          depth), axis=-1)  # Z points into screen
+    points_cam = points_cam.reshape(-1, 3)
 
-def _save_pointcloud(points, colors):
-    # DEBUG point - properly add world frame point and color
-    points = np.vstack([points, [0, 0, 0]])  # Add origin point
-    colors = np.vstack([colors, [255, 0, 0]])  # Color it red (in 0-255 range)
+    colors = rgb.reshape(-1, 3)
+    
+    _save_pointcloud(points=points_cam, colors=colors, pcd_File=pcd_File)
 
+def _save_pointcloud(points:np.ndarray,
+                     colors:np.ndarray,
+                     pcd_File:str="point_cloud.pcd"):
     # Convert to numpy arrays if they aren't already
     points_np = np.asarray(points)
     colors_np = np.asarray(colors) / 255.0  # Convert colors to 0-1 range
@@ -85,9 +90,34 @@ def _save_pointcloud(points, colors):
     pcd.points = o3d.utility.Vector3dVector(points_np)
     pcd.colors = o3d.utility.Vector3dVector(colors_np)
     # Write the point cloud to a PCD file
-    o3d.io.write_point_cloud("point_cloud.pcd", pcd)
+    o3d.io.write_point_cloud(pcd_File, pcd)
 
 def show_pointcloud(pcd_File:str="point_cloud.pcd"):
     cloud = o3d.io.read_point_cloud(pcd_File)
     # Visualize the point cloud
     o3d.visualization.draw_geometries([cloud])
+
+def get_camera_pose_cv(model:mj.MjModel,
+                       data:mj.MjData,
+                       camera_name:str="cam1"):
+    """Get camera pose for computer vision
+    Gives us the camera position and orientation in a computer vision perspective
+    x - right
+    y - down
+    z - in view direction
+    This position and orientation is different from the MuJoCo definition.
+    It fits the point cloud generated with the get_pointcloud function.
+    """
+    # Get camera ID and verify
+    cam_id = mj.mj_name2id(model, mj.mjtObj.mjOBJ_CAMERA, camera_name)
+    if cam_id == -1:
+        raise ValueError(f"Camera '{camera_name}' not found")
+    
+    # Get camera pose
+    cam_pos = data.cam_xpos[cam_id]
+    cam_rot = data.cam_xmat[cam_id].reshape(3, 3)
+    cam_se3 = SE3.Rt(cam_rot * SO3.Rx(math.pi), cam_pos)
+
+    return cam_se3
+
+    

@@ -62,17 +62,40 @@
           <geom mass="0" type="box" pos="0 -0.0026 0.009375" size="0.011 0.004 0.009375" friction="0.6"
             solimp="0.95 0.99 0.001" solref="0.004 1" priority="1" rgba="0.45 0.45 0.45 1"/>
 
+        <!--
+          Its very important or else the object stucks with the gripper because of the
+          meshes are get each other and for not slipping the object from the gripper
+          
+          friction="0.8 0.8 0.05":
+          - High slide friction (0.8) for secure grip without slipping
+          - High spin friction (0.8) prevents rotation during grasp
+          - Low roll friction (0.05) for clean release
+          - Previous 0.1 was too slippery - object slides out
+          Reference: https://mujoco.readthedocs.io/en/latest/modeling.html#cfriction
+
+          solref="0.002 1":
+          - MUST match cylinder solref for consistent contact behavior
+          - Gripper pad softer than object = object sinks INTO gripper
+          - Same stiffness = clean contact, proper release
+          Reference: https://mujoco.readthedocs.io/en/latest/computation/solver.html
+
+          solimp="0.95 0.99 0.001":
+          - Previous 0.0001 (contact_width) was TOO SOFT
+          - Caused "squishy" contact that absorbed object
+          - 0.001 allows minimal penetration, provides firm surface
+          Reference: https://mujoco.readthedocs.io/en/latest/XMLreference.html#body-geom
+        -->
         <default class="pad_box0">
           <geom
               mass="0"
               type="box"
               pos="0 -0.0026 0.01875"
               size="0.011 0.004 0.018"
-              condim="6"  
+              condim="6"
               rgba="0.45 0.45 0.45 1"
-              friction="0.1 0.1 0.1"
-              solref="0.0001 1"
-              solimp="0.999 0.9999 0.0001"
+              friction="0.8 0.8 0.05"
+              solref="0.002 1"
+              solimp="0.95 0.99 0.001"
           />
         </default> 
         </default>

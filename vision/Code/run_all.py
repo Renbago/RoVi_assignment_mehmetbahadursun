@@ -8,6 +8,9 @@ import do_pe
 import helpers
 import settings
 
+# Disable visualizations for batch processing
+do_pe.DEBUG = False
+
 indexes = settings.indexes
 noise_levels = settings.noise_levels
 
@@ -23,12 +26,15 @@ class bcolors:
     UNDERLINE = '\033[4m'
 
 def main():
+    results = []  # For collecting all test results
+
     for index in indexes:
         for iteration in range(0,5):
             for noise_sigma in noise_levels:
                 if index != indexes[0] and noise_sigma != 0.0:
                     continue
 
+                print(f"\n[TEST] Scene={index}, Iter={iteration}, Noise={noise_sigma}")
                 scene_pointcloud_file_name = settings.input_folder + f'point_cloud_{index:04}.pcd'
                 scene_pointcloud = o3d.io.read_point_cloud(scene_pointcloud_file_name)
                 
@@ -65,6 +71,13 @@ def main():
 
                 print(color, index, iteration, noise_sigma, error_angle, error_pos, elapsed_time)
 
+                # Collect result
+                passed = error_angle <= 5 and error_pos <= 5
+                results.append({
+                    'scene': index, 'iter': iteration, 'noise': noise_sigma,
+                    'angle': error_angle, 'pos': error_pos, 'passed': passed
+                })
+
                 f = open(settings.results_folder + f'time_{index:04}_{noise_sigma}_{iteration}.txt', "w")
                 f.write(str(elapsed_time) + '\n')
                 f.close()
@@ -72,6 +85,27 @@ def main():
 
                 # object_pointcloud.colors = o3d.utility.Vector3dVector(np.zeros_like(object_pointcloud.points) + [255,0,0])
                 # o3d.visualization.draw_geometries([object_pointcloud.transform(estimated_pose), scene_pointcloud_noisy], window_name='Final alignment')
+
+    # =========================================================================
+    # Summary
+    # =========================================================================
+
+    print("\n\nFINAL SUMMARY")
+
+    passed = sum(1 for r in results if r['passed'])
+    total = len(results)
+    avg_angle = np.mean([r['angle'] for r in results])
+    avg_pos = np.mean([r['pos'] for r in results])
+
+    if passed == total:
+        color = bcolors.OKGREEN
+    elif passed >= total * 0.8:
+        color = bcolors.WARNING
+    else:
+        color = bcolors.FAIL
+
+    print(f"{color}TOTAL: {passed}/{total} passed ({100*passed/total}%){bcolors.ENDC}")
+    print(f"Average Error: {avg_angle}deg / {avg_pos:.2f}mm")
 
 if __name__ == "__main__":
     main()

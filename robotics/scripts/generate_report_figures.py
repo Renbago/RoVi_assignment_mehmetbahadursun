@@ -31,7 +31,12 @@ from scripts.trajectory_plotting import (
     plot_fk_comparison,
     plot_forward_kinematics,
     plot_all_joints_derivatives,
-    plot_combined_trajectory
+    plot_combined_trajectory,
+    # New report-style functions (instructor format: 6x1 subplots)
+    plot_rrt_vs_p2p_position,
+    plot_rrt_vs_p2p_velocity,
+    plot_rrt_vs_p2p_acceleration,
+    plot_rrt_vs_p2p_combined,
 )
 from utils.logger import ProjectLogger
 
@@ -221,6 +226,40 @@ def generate_single_object_figures(obj_name: str, robot_rtb, show: bool = False)
 
     # --- Comparison Plots (require both) ---
     if rrt_traj is not None and p2p_traj is not None:
+        # === REPORT FORMAT PLOTS (Instructor style: 6x1 subplots, PDF) ===
+        # Position comparison
+        plot_rrt_vs_p2p_position(
+            rrt_traj, p2p_traj, dt=DT,
+            title=f"{obj_name.upper()} - Joint Position (RRT vs P2P)",
+            save_path=os.path.join(REPORT_DIR, f"{obj_name}_position.pdf"),
+            show=show
+        )
+
+        # Velocity comparison
+        plot_rrt_vs_p2p_velocity(
+            rrt_traj, p2p_traj, dt=DT,
+            title=f"{obj_name.upper()} - Joint Velocity (RRT vs P2P)",
+            save_path=os.path.join(REPORT_DIR, f"{obj_name}_velocity.pdf"),
+            show=show
+        )
+
+        # Acceleration comparison
+        plot_rrt_vs_p2p_acceleration(
+            rrt_traj, p2p_traj, dt=DT,
+            title=f"{obj_name.upper()} - Joint Acceleration (RRT vs P2P)",
+            save_path=os.path.join(REPORT_DIR, f"{obj_name}_acceleration.pdf"),
+            show=show
+        )
+
+        # Combined compact plot (3x2)
+        plot_rrt_vs_p2p_combined(
+            rrt_traj, p2p_traj, dt=DT,
+            obj_name=obj_name,
+            save_path=os.path.join(REPORT_DIR, f"{obj_name}_combined.pdf"),
+            show=show
+        )
+
+        # === ORIGINAL COMPARISON PLOTS (PNG) ===
         # Overlay comparison
         plot_comparison_overlay(
             rrt_traj, p2p_traj, dt=DT,
@@ -242,7 +281,7 @@ def generate_single_object_figures(obj_name: str, robot_rtb, show: bool = False)
             plot_fk_comparison(
                 rrt_traj, p2p_traj, robot_rtb, dt=DT,
                 obj_name=obj_name,
-                save_path=os.path.join(REPORT_DIR, f"{obj_name}_fk_comparison.png"),
+                save_path=os.path.join(REPORT_DIR, f"{obj_name}_fk_comparison.pdf"),
                 show=show
             )
 

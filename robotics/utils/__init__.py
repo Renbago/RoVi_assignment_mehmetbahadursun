@@ -17,8 +17,10 @@ from .mujoco_utils import (
     get_p2p_waypoints,
     get_objects_to_move,
     get_model_path,
+    get_available_planners,
     get_default_planner,
     get_ik_mode,
+    get_gripper_config,
     # Grasp offset functions
     compute_real_grasp_offset,
     clear_grasp_offset,

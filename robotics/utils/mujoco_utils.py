@@ -48,6 +48,11 @@ OBJECT_GEOMS = {
     "box": ["box"],
     "cylinder": ["cylinder"],
     "t_block": ["t_block_pt1", "t_block_pt2"],
+    "duck": [
+        "duck_collision_0", "duck_collision_1", "duck_collision_2",
+        "duck_collision_3", "duck_collision_4", "duck_collision_5",
+        "duck_collision_6"
+    ],
 }
 
 # Gripper geometry names (subset of UR_COLLISION_GEOMS)
@@ -99,6 +104,7 @@ GRASP_CONFIG = {
     "box": {"rx": np.pi, "tz": 0.03, "td": 0.03, "side_grasp": False},
     "cylinder": {"rx": np.pi / 2, "rz": -np.pi / 2, "tz": 0.0, "td": 0.02, "side_grasp": True},
     "t_block": {"rx": np.pi,"rz": -np.pi / 2, "tz": 0.02, "td": 0.03, "side_grasp": False},
+    "duck": {"rx": np.pi, "tz": 0.02, "td": 0.02, "side_grasp": False},
 }
 
 DEFAULT_GRASP_CONFIG = {"rx": np.pi, "rz": 0, "tz": 0, "td": 0, "side_grasp": False}
@@ -142,28 +148,99 @@ def get_p2p_waypoints(config, obj_name):
     return [np.array(wp) for wp in waypoints]
 
 
-def get_objects_to_move(config):
+def get_objects_to_move(config, project_name=None):
     """
-    Get list of objects to move from config.
+    Get list of objects to move based on selected project.
+
+    project_name: 
+        Project name ("robotic_project" or "integration_project").
+                If None, uses default_project from config.
     """
-    return config.get('scene', {}).get('objects_to_move', [])
+    if project_name is None:
+        project_name = config.get('default_project', 'robotic_project')
+
+    project = config.get(project_name, {})
+    return project.get('objects_to_move', [])
 
 
-def get_model_path(config):
+def get_model_path(config, project_name=None):
     """
-    Get model path from config.
+    Get model path based on selected project.
+
+    project_name: 
+        Project name ("robotic_project" or "integration_project").
+                If None, uses default_project from config.
     """
-    return config.get('scene', {}).get('model_path', 'scene_obstacles_lecture_6.xml')
+    if project_name is None:
+        project_name = config.get('default_project', 'robotic_project')
+
+    # Direct access to project config (no nested 'projects' key)
+    project = config.get(project_name, {})
+    return project.get('model_path', 'scene_obstacles_lecture_6.xml')
 
 
-def get_default_planner(config):
-    """Get default planner type from config."""
-    return config.get('planner', {}).get('default_type', 'rrt')
+def get_available_planners(config, project_name=None):
+    """
+    Get available planners based on selected project.
+
+    project_name: 
+        Project name ("robotic_project" or "integration_project").
+                If None, uses default_project from config.
+    """
+    if project_name is None:
+        project_name = config.get('default_project', 'robotic_project')
+
+    # Direct access to project config (no nested 'projects' key)
+    project = config.get(project_name, {})
+    return project.get('available_planners', ['rrt', 'prm', 'p2p'])
 
 
-def get_ik_mode(config):
-    """Get IK mode from config: 'simple' or 'goal_region'."""
-    return config.get('planner', {}).get('ik_mode', 'simple')
+def get_default_planner(config, project_name=None):
+    """
+    Get default planner type from project config.
+    """
+    if project_name is None:
+        project_name = config.get('default_project', 'robotic_project')
+
+    project = config.get(project_name, {})
+    return project.get('planner', {}).get('default_type', 'rrt')
+
+
+def get_ik_mode(config, project_name=None):
+    """
+    Get IK mode from project config: 'simple' or 'goal_region'.
+    """
+    if project_name is None:
+        project_name = config.get('default_project', 'robotic_project')
+
+    project = config.get(project_name, {})
+    return project.get('ik', {}).get('mode', 'simple')
+
+
+def get_gripper_config(config, project_name=None):
+    """
+    Get gripper configuration from project config.
+
+    project_name: 
+        Project name ("robotic_project" or "integration_project").
+                If None, uses default_project from config.
+    """
+    if project_name is None:
+        project_name = config.get('default_project', 'robotic_project')
+
+    project = config.get(project_name, {})
+    gripper_config = project.get('timing', {}).get('gripper', {})
+
+    # Return with defaults
+    return {
+        'open_value': gripper_config.get('open_value', 0),
+        'close_value': gripper_config.get('close_value', 255),
+        'closed_threshold': gripper_config.get('closed_threshold', 200),
+        'open_time': gripper_config.get('open_time', 800),
+        'close_time': gripper_config.get('close_time', 800),
+        'release_time': gripper_config.get('release_time', 800),
+    }
+
 
 # ============================================================
 # mujoco Functions
@@ -233,7 +310,7 @@ def get_mjobj_frame(model, data, obj_name):
     return _make_tf(R=obj_rot.reshape(3, 3), t=obj_pos)
 
 
-def is_q_valid(d, m, q, target_object=None):
+def is_q_valid(d, m, q, target_object=None, debug=False):
     """
     Check if joint configuration is collision-free.
 
@@ -244,6 +321,7 @@ def is_q_valid(d, m, q, target_object=None):
         target_object: Name of object being grasped (collisions with this object
                       are ignored to allow gripper contact). If None, all
                       graspable object collisions are checked.
+        debug: If True, print collision details
 
     IMPORTANT: Only ignore collisions with the SPECIFIC target object.
     Previously this ignored ALL graspables, causing robot to push other
@@ -273,6 +351,9 @@ def is_q_valid(d, m, q, target_object=None):
                     allowed_geoms = OBJECT_GEOMS.get(target_object, [])
                     if geom1_name in allowed_geoms or geom2_name in allowed_geoms:
                         continue
+
+                if debug:
+                    print(f"  [COLLISION] {geom1_name} <-> {geom2_name}")
 
                 # Collision detected - restore and return False
                 ur_set_qpos(d, q0)

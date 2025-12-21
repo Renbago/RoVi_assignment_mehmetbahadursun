@@ -3,6 +3,7 @@
 #Folders
 example
 venv
+rovi2025
 
 #Python
 __pycache__/
@@ -12,11 +13,11 @@ __pycache__/
 #Outputs
 gifs/
 planning_logs/
-outputs/
+trajectory_data/
 
 # Latex
 ROVI_Latex.zip
-ROVI_Latex_template/
+ROVI_Latex_template.zip
 
 ## Vision
 reference_files/
@@ -24,3 +25,5 @@ Scenes/
 
 vision/results/
 vision/screenshoots/
+# vision/graphs/
+vision/notes/

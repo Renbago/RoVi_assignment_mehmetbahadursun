@@ -24,7 +24,7 @@ from scripts.planners import PathPlanner, Q_HOME
 from scripts.ik_simple import plan_to_frame
 from utils.logger import ProjectLogger
 from utils.mujoco_utils import (
-    get_mjobj_frame, load_config, get_ik_mode,
+    get_mjobj_frame, load_config, get_ik_mode, get_gripper_config,
     GRASP_CONFIG, DEFAULT_GRASP_CONFIG,
     compute_real_grasp_offset, clear_grasp_offset
 )
@@ -35,14 +35,15 @@ class UR5TimingSettings:
 
     def __init__(self):
         config = load_config()
-        timing = config.get('timing', {})
-
-        # Gripper timing
-        gripper = timing.get('gripper', {})
-        self.gripper_time = gripper.get('close_time', 300)
-        self.gripper_release_time = gripper.get('release_time', 800)
+        # Get gripper config from robotic_project
+        gripper_cfg = get_gripper_config(config, "robotic_project")
+        self.gripper_open = gripper_cfg['open_value']
+        self.gripper_close = gripper_cfg['close_value']
+        self.gripper_time = gripper_cfg['close_time']
+        self.gripper_release_time = gripper_cfg['release_time']
 
         # RRT/PRM timing
+        timing = config.get('robotic_project', {}).get('timing', {})
         rrt = timing.get('rrt', {})
         self.descent_time = rrt.get('descent_time', 500)
         self.lift_time = rrt.get('lift_time', 500)
@@ -55,10 +56,6 @@ class UR5TimingSettings:
 
 
 _ur5_timing = UR5TimingSettings()
-
-# Gripper settings (hardware constants)
-GRIPPER_OPEN = 0
-GRIPPER_CLOSE = 255
 
 # Approach settings
 APPROACH_HEIGHT = 0.15
@@ -128,7 +125,7 @@ def execute_manipulation_sequence(robot, d, m, viewer, execute_fn,
         return False
 
     # 3. Actuate gripper
-    close_gripper = (gripper_value == GRIPPER_CLOSE)
+    close_gripper = (gripper_value == _ur5_timing.gripper_close)
     _actuate_gripper(robot, d, m, viewer, execute_fn,
                      close=close_gripper, obj_name=obj_name,
                      log_list=log_list, boundary_list=boundary_list,
@@ -214,7 +211,7 @@ def pick_object(robot, obj_name, planner_type, d, m, viewer, execute_fn,
         path=path,
         target_frame=grasp_frame,
         approach_frame=approach_frame,
-        gripper_value=GRIPPER_CLOSE,
+        gripper_value=_ur5_timing.gripper_close,
         obj_name=obj_name,
         action_verb="grasp",
         path_t=_ur5_timing.path_time,
@@ -289,7 +286,7 @@ def place_object(robot, obj_name, planner_type, d, m, viewer, execute_fn,
         path=path,
         target_frame=drop_target_frame,
         approach_frame=drop_approach_frame,
-        gripper_value=GRIPPER_OPEN,
+        gripper_value=_ur5_timing.gripper_open,
         obj_name=obj_name,
         action_verb="release",
         path_t=_ur5_timing.place_path_time,
@@ -454,7 +451,7 @@ def _actuate_gripper(robot, d, m, viewer, execute_fn,
     """
     logger = ProjectLogger.get_instance()
 
-    gripper_value = GRIPPER_CLOSE if close else GRIPPER_OPEN
+    gripper_value = _ur5_timing.gripper_close if close else _ur5_timing.gripper_open
     action = "grasp" if close else "release"
     actual_t = gripper_t if gripper_t is not None else _ur5_timing.gripper_time
 
@@ -633,8 +630,8 @@ def execute_p2p_sequence(robot, obj_name: str, d, m, viewer, execute_fn,
     logger = ProjectLogger.get_instance()
     config = load_config()
 
-    # Get p2p_frames config
-    p2p_frames_config = config.get('p2p_frames', {}).get(obj_name, {})
+    # Get p2p_frames from robotic_project config
+    p2p_frames_config = config.get('robotic_project', {}).get('p2p_frames', {}).get(obj_name, {})
     frame_defs = p2p_frames_config.get('frames', [])
 
     if not frame_defs:

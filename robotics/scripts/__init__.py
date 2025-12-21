@@ -10,6 +10,14 @@ from .trajectory_plotting import (
     plot_trajectory_derivatives,
     plot_all_joints_derivatives,
     plot_combined_trajectory,
+    plot_comparison_overlay,
+    plot_comparison_sidebyside,
+    plot_fk_comparison,
+    plot_forward_kinematics,
+    plot_rrt_vs_p2p_position,
+    plot_rrt_vs_p2p_velocity,
+    plot_rrt_vs_p2p_acceleration,
+    plot_rrt_vs_p2p_combined,
 )
 
 from .manipulation import (
@@ -38,4 +46,19 @@ from .ik_goal_region import (
 from .ik_p2p import (
     P2PFramePlanner,
     compute_fk_positions,
+)
+
+from .cv_demo import program as cv_demo_program
+
+from .integration import (
+    run_integration,
+    reset_robot_to_home,
+    randomize_duck_position,
+    freeze_duck,
+    run_pose_estimation,
+    compute_grasp_frames,
+    pick_with_p2p,
+    pick_with_rrt,
+    place_with_p2p,
+    execute_hybrid_p2p,
 )
