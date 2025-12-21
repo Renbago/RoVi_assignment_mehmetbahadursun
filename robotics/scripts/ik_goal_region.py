@@ -254,8 +254,9 @@ def plan_with_goal_region(d, m, start_q: np.ndarray, target_frame,
     logger = ProjectLogger.get_instance()
     config = load_config()
 
-    # Get IK settings from config
-    ik_config = config.get('ik', {})
+    # Get IK settings from config (default to robotic_project)
+    project_config = config.get('robotic_project', config)
+    ik_config = project_config.get('ik', {})
     sampling_config = ik_config.get('sampling', {})
     n_samples = sampling_config.get('n_samples', 64)
 
@@ -329,9 +330,10 @@ def plan_with_goal_region(d, m, start_q: np.ndarray, target_frame,
     if solved and pdef.hasExactSolution():
         path = pdef.getSolutionPath()
 
-        # Check if P2P data collection mode is enabled
+        # Check if P2P data collection mode is enabled (robotic_project only)
         config = load_config()
-        p2p_data_collection = config.get('planner', {}).get('p2p', {}).get(
+        project_config = config.get('robotic_project', {})
+        p2p_data_collection = project_config.get('planner', {}).get('p2p', {}).get(
             'data_collection_rrt_simplified', False
         )
 

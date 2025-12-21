@@ -178,8 +178,9 @@ class PathPlanner:
         solved = ss.solve(self.timeout)
 
         if solved:
-            # Check if P2P data collection mode is enabled
-            p2p_data_collection = self.config.get('planner', {}).get('p2p', {}).get(
+            # Check if P2P data collection mode is enabled (robotic_project only)
+            project_config = self.config.get('robotic_project', {})
+            p2p_data_collection = project_config.get('planner', {}).get('p2p', {}).get(
                 'data_collection_rrt_simplified', False
             )
 

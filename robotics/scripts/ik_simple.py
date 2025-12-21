@@ -67,8 +67,9 @@ def plan_simple_ik(d, m, start_q: np.ndarray, target_frame,
     if config is None:
         config = load_config()
 
-    # Get IK settings from config
-    ik_config = config.get('ik', {})
+    # Get IK settings from config (default to robotic_project)
+    project_config = config.get('robotic_project', config)
+    ik_config = project_config.get('ik', {})
     sampling_config = ik_config.get('sampling', {})
 
     if n_samples is None:
@@ -141,7 +142,9 @@ def plan_to_frame(d, m, start_q: np.ndarray, target_frame,
     logger = ProjectLogger.get_instance()
     config = load_config()
 
-    ik_config = config.get('ik', {})
+    # Get IK settings (default to robotic_project)
+    project_config = config.get('robotic_project', config)
+    ik_config = project_config.get('ik', {})
     if ik_mode is None:
         ik_mode = ik_config.get('mode', 'simple')
 
@@ -230,14 +233,15 @@ def _sample_ik_solutions(start_q: np.ndarray, target_frame,
             ik_converged += 1
             goal_q = result[0]
 
-            # Collision check
+            # Collision check (debug first collision to see what's blocking)
+            debug_first = (collision_failed == 0)
             if held_object:
                 is_valid = is_q_valid_with_held_object(
                     d, m, goal_q, robot_rtb=robot,
                     held_object=held_object, target_object=target_object
                 )
             else:
-                is_valid = is_q_valid(d, m, goal_q, target_object)
+                is_valid = is_q_valid(d, m, goal_q, target_object, debug=debug_first)
 
             if is_valid:
                 # Check uniqueness
@@ -334,9 +338,10 @@ def _plan_rrt_to_goal(d, m, start_q: np.ndarray, goal_q: np.ndarray,
             logger.log_planning_result(False, planner_type=log_label)
             return None
 
-        # Check if P2P data collection mode is enabled
+        # Check if P2P data collection mode is enabled (robotic_project only)
         config = load_config()
-        p2p_data_collection = config.get('planner', {}).get('p2p', {}).get(
+        project_config = config.get('robotic_project', {})
+        p2p_data_collection = project_config.get('planner', {}).get('p2p', {}).get(
             'data_collection_rrt_simplified', False
         )
 
@@ -395,7 +400,9 @@ def _plan_with_retry_sweep(d, m, start_q: np.ndarray, target_frame,
     """
     start_q = normalize_angles(np.array(start_q))
 
-    ik_config = config.get('ik', {})
+    # Get IK settings (default to robotic_project)
+    project_config = config.get('robotic_project', config)
+    ik_config = project_config.get('ik', {})
     sampling_config = ik_config.get('sampling', {})
     n_samples = sampling_config.get('n_samples', 64)
     sweep_degrees = sampling_config.get('sweep', {}).get('degrees', 30)
@@ -448,8 +455,9 @@ def _plan_with_retry_sweep(d, m, start_q: np.ndarray, target_frame,
     solved = ss.solve(retry_timeout)
 
     if solved and ss.haveExactSolutionPath():
-        # Check if P2P data collection mode is enabled
-        p2p_data_collection = config.get('planner', {}).get('p2p', {}).get(
+        # Check if P2P data collection mode is enabled (robotic_project only)
+        project_cfg = config.get('robotic_project', {})
+        p2p_data_collection = project_cfg.get('planner', {}).get('p2p', {}).get(
             'data_collection_rrt_simplified', False
         )
 

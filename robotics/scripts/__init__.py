@@ -41,3 +41,16 @@ from .ik_p2p import (
 )
 
 from .cv_demo import program as cv_demo_program
+
+from .integration import (
+    run_integration,
+    reset_robot_to_home,
+    randomize_duck_position,
+    freeze_duck,
+    run_pose_estimation,
+    compute_grasp_frames,
+    pick_with_p2p,
+    pick_with_rrt,
+    place_with_p2p,
+    execute_hybrid_p2p,
+)

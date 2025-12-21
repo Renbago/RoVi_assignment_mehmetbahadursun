@@ -43,6 +43,11 @@ robotic_project:
   # Timing settings (in milliseconds)
   timing:
     gripper:
+      # Gripper control values (0-255 range from Hand-E actuator)
+      open_value: 0           # Gripper fully open position
+      close_value: 255        # Gripper fully closed position
+      closed_threshold: 200   # Above this = considered closed (for duck freeze logic)
+      # Timing
       open_time: 800
       close_time: 800
       release_time: 800
@@ -156,6 +161,11 @@ integration_project:
   # Timing settings (in milliseconds) - SEPARATE from robotic_project
   timing:
     gripper:
+      # Gripper control values (0-255 range from Hand-E actuator)
+      open_value: 0           # Gripper fully open position
+      close_value: 255        # Gripper fully closed position
+      closed_threshold: 200   # Above this = considered closed (for duck freeze logic)
+      # Timing
       open_time: 800
       close_time: 1000      # Longer for duck scenerio
       release_time: 800

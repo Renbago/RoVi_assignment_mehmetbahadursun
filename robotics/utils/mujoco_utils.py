@@ -216,6 +216,32 @@ def get_ik_mode(config, project_name=None):
     project = config.get(project_name, {})
     return project.get('ik', {}).get('mode', 'simple')
 
+
+def get_gripper_config(config, project_name=None):
+    """
+    Get gripper configuration from project config.
+
+    project_name: 
+        Project name ("robotic_project" or "integration_project").
+                If None, uses default_project from config.
+    """
+    if project_name is None:
+        project_name = config.get('default_project', 'robotic_project')
+
+    project = config.get(project_name, {})
+    gripper_config = project.get('timing', {}).get('gripper', {})
+
+    # Return with defaults
+    return {
+        'open_value': gripper_config.get('open_value', 0),
+        'close_value': gripper_config.get('close_value', 255),
+        'closed_threshold': gripper_config.get('closed_threshold', 200),
+        'open_time': gripper_config.get('open_time', 800),
+        'close_time': gripper_config.get('close_time', 800),
+        'release_time': gripper_config.get('release_time', 800),
+    }
+
+
 # ============================================================
 # mujoco Functions
 # ============================================================
