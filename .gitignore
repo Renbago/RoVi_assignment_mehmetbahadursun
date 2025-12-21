@@ -21,9 +21,9 @@ ROVI_Latex_template.zip
 
 ## Vision
 reference_files/
-Scenes/
+# Scenes/
 
-vision/results/
+# vision/results/
 vision/screenshoots/
 # vision/graphs/
-vision/notes/
+# vision/notes/

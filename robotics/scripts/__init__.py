@@ -43,11 +43,6 @@ from .ik_goal_region import (
     plan_with_goal_region,
 )
 
-from .ik_p2p import (
-    P2PFramePlanner,
-    compute_fk_positions,
-)
-
 from .cv_demo import program as cv_demo_program
 
 from .integration import (
