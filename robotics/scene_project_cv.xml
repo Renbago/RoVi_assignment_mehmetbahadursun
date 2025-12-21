@@ -13,7 +13,7 @@
 	<statistic meansize="0.1" extent="1" center="4 0 0" />
 	
 	<include file="assets/UR5eGripper/ur5e2f85.xml" />
-	<include file="assets/objects/duck/duck.xml" />
+	<include file="assets/duck/duck.xml" />
 
 	<asset>
 		<mesh name="table_mesh" file="assets/table/sigmund_table.stl" />
