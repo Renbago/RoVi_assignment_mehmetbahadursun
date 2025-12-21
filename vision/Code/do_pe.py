@@ -16,6 +16,10 @@ Note from author:
 - With current version if it does not match it doesnt move the duck so i believe its better
 - In the past scenerios which I tuned it was finding sometimes and not but nearly always had a wrong placement
 - Because of FPFH normal inconsistency.
+- p.s  as mentioned: performance of more than 20% will not impact your grade (so don’t
+    spend time optimizing if you already have a 20% performance for each of your
+    scenes).  I should follow this advice haha 
+
 
 Reference's are mentioned in the function's but main references are:
 - https://www.open3d.org/docs/release/tutorial/geometry/pointcloud.html
@@ -136,8 +140,24 @@ def orient_normals_mst(obj, scn, labels=None):
     Direction is arbitrary (as research its seed dependent)
     I've tried lots of other ways but in the end same thing.
 
+    Important:
+    - https://www.open3d.org/docs/release/tutorial/geometry/pointcloud.html#Voxel-downsampling
+        
+        The covariance analysis algorithm produces two opposite directions as normal candidates.
+        Without knowing the global structure of the geometry, both can be correct.
+        This is known as the normal orientation problem. 
+        Open3D tries to orient the normal to align with the original normal if it exists. 
+        Otherwise, Open3D does a random guess. 
+        Further orientation functions such as orient_normals_to_align_with_direction and orient_normals_towards_camera_location 
+        need to be called if the orientation is a concern.
+
+    Note from author:
+    - First time when I tried in the low noises with voxel it always failing so I added MST and tried the other parts so nearly they gave
+      Same results, but if i attach the all the normals are +Z as the object, then  all of the FPFH's are finds results so its nearly most of the time 
+      Gaves wrong rotation or something int he and i stick with MST + per-cluster MST
+        
+
     Reference:
-    - https://cims.nyu.edu/gcl/papers/2021-Dipole.pdf
     - https://www.open3d.org/docs/release/tutorial/geometry/pointcloud.html
     - Hoppe et al. 1992 "Surface Reconstruction from Unorganized Points"
       https://hhoppe.com/recon.pdf (Section 3.3: Consistent Orientation)
@@ -658,10 +678,15 @@ def do_pose_estimation(scene_pointcloud, object_pointcloud):
     # ==========================================================================
     icp_threshold = VOXEL_SIZE * ICP_DISTANCE_FACTOR
 
-    # Use Point-to-Plane ICP
+    """
+    From author note:
+    - I tested both of the scenerio nearly same results
+    """
+
+    # Point-to-Plane ICP
     # pose_final = execute_icp_point_to_plane(obj, scn, pose_ransac, icp_threshold, max_iteration=ICP_MAX_ITERATION)
 
-    # Alternative: Point-to-Point ICP
+    # Point-to-Point ICP
     pose_final = execute_icp_point_to_point(obj, scn, pose_ransac, icp_threshold, max_iteration=ICP_MAX_ITERATION)
 
     obj_icp = copy.deepcopy(obj)
