@@ -46,9 +46,19 @@ docker run -it --device=/dev/dri \
      -v $(pwd):/home/robotics/workspace \
      finalproject_mehmetbahadursun
 ```
+## Robotic Part
 
-## Project Structure
+Most of the information's are gaven inside of the code.
+For running the simulation execute:
 
+```
+robotics/main.py
+```
 
-## Troubleshooting
+In here u have a option of running integration task
+or robotic part 3 task. 
 
+## Vision part
+
+For see the outputs open the ```Debug``` mode
+inside of run_all.py
