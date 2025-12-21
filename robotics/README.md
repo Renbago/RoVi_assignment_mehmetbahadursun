@@ -54,7 +54,7 @@ as their work. and can be followable from gitlogs
 Also in main.py its the architecture can be seenable.
 
 If u want to tune or change something use config.yaml all of the params
-and the settings initialized there.
+and the settings initialized there. 
 All of the p2p points and relative things attached there the main code mostly
 does not have hard-coded params and settings. So u can just modify config.yaml
 
@@ -70,7 +70,7 @@ robotics/main.py
 ```
 
 In here u have a option of running integration task
-or robotic part 3 task.
+or robotic part 3 task. 
 
 ### Video Demonstrations
 
@@ -80,8 +80,3 @@ or robotic part 3 task.
 | P2P Execution | [YouTube](https://youtu.be/nj_jDb7eGxQ) |
 | RRT Execution | [YouTube](https://youtu.be/tpHh2QvFxpo) |
 | Integration (Part 5) | [YouTube](https://youtu.be/QDvPMWtlsyQ) | 
-
-## Vision part
-
-For see the outputs open the ```Debug``` mode
-inside of run_all.py
