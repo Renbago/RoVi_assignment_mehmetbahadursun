@@ -76,7 +76,7 @@ or robotic part 3 task.
 
 | Demo | Link |
 |------|------|
-| P2P Data Collection | [YouTube](https://youtu.be/ljMGeYzblWg) |
+| P2P Data Collection | [YouTube]([https://youtu.be/ljMGeYzblWg](https://youtu.be/JD8mP_SH8sg)) |
 | P2P Execution | [YouTube](https://youtu.be/nj_jDb7eGxQ) |
 | RRT Execution | [YouTube](https://youtu.be/tpHh2QvFxpo) |
 | Integration (Part 5) | [YouTube](https://youtu.be/QDvPMWtlsyQ) | 
